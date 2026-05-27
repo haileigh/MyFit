@@ -3,58 +3,40 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, SafeAreaView, ActivityIndicator, Alert, Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import Constants from 'expo-constants';
 import { COLORS, SPACING, RADIUS, CATEGORIES, SEASONS } from './theme';
 import { insertItem } from './database';
 
 // ── API KEYS ────────────────────────────────────────────────
-const ANTHROPIC_API_KEY = 'YOUR_ANTHROPIC_API_KEY';
-const REMOVEBG_API_KEY  = 'YOUR_REMOVEBG_API_KEY';
+// Set these in app.json under "extra": { "anthropicKey": "...", "removebgKey": "..." }
+const ANTHROPIC_API_KEY = Constants.expoConfig?.extra?.anthropicKey || '';
+const REMOVEBG_API_KEY  = Constants.expoConfig?.extra?.removebgKey  || '';
 // ────────────────────────────────────────────────────────────
 
-// ── CAMERA & BACKGROUND REMOVAL ─────────────────────────────
-// These functions are ready for the real build (EAS/APK).
-// expo-image-picker and expo-file-system don't run in Snack.
-// Uncomment and use when you build the APK:
-//
-// import * as ImagePicker from 'expo-image-picker';
-// import * as FileSystem from 'expo-file-system';
-//
-// async function pickImage(useCamera) {
-//   if (useCamera) {
-//     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-//     if (status !== 'granted') { Alert.alert('Permission needed'); return null; }
-//     const result = await ImagePicker.launchCameraAsync({ quality: 0.85, allowsEditing: true, aspect: [3,4] });
-//     return result.canceled ? null : result.assets[0].uri;
-//   } else {
-//     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-//     if (status !== 'granted') { Alert.alert('Permission needed'); return null; }
-//     const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, allowsEditing: true, aspect: [3,4] });
-//     return result.canceled ? null : result.assets[0].uri;
-//   }
-// }
-//
-// async function removeBackground(imageUri) {
-//   const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' });
-//   const response = await fetch('https://api.remove.bg/v1.0/removebg', {
-//     method: 'POST',
-//     headers: { 'X-Api-Key': REMOVEBG_API_KEY, 'Content-Type': 'application/json' },
-//     body: JSON.stringify({ image_file_b64: base64, size: 'auto' }),
-//   });
-//   const data = await response.json();
-//   return 'data:image/png;base64,' + data.result_b64;
-// }
-// ────────────────────────────────────────────────────────────
+async function removeBackground(imageUri) {
+  // ── BACKGROUND REMOVAL ──────────────────────────────────
+  // Uncomment when you have a Remove.bg API key:
+  //
+  // const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' });
+  // const response = await fetch('https://api.remove.bg/v1.0/removebg', {
+  //   method: 'POST',
+  //   headers: { 'X-Api-Key': REMOVEBG_API_KEY, 'Content-Type': 'application/json' },
+  //   body: JSON.stringify({ image_file_b64: base64, size: 'auto' }),
+  // });
+  // const data = await response.json();
+  // return 'data:image/png;base64,' + data.result_b64;
+  //
+  // For now, return original image:
+  return imageUri;
+}
 
 async function analyzeWithClaude(imageUri) {
   if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'YOUR_ANTHROPIC_API_KEY') return null;
   try {
-    const response = await fetch(imageUri);
-    const blob = await response.blob();
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
+    const base64 = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
     });
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -64,17 +46,17 @@ async function analyzeWithClaude(imageUri) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-5',
+        model: 'claude-sonnet-4-20250514',
         max_tokens: 1024,
         messages: [{
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
-            { type: 'text', text: `You are a fashion expert. Analyze this clothing item and return ONLY a JSON object with no extra text:
+            { type: 'text', text: `You are a fashion expert and color analyst. Analyze this clothing item and return ONLY a JSON object with no extra text:
 {
-  "brand": "brand name if visible, else empty string",
+  "brand": "brand name if visible on tag or logo, else empty string",
   "name": "item name e.g. Merino ribbed turtleneck",
-  "description": "one sentence describing style and fabric",
+  "description": "one sentence describing style and fabric if visible",
   "color": "primary color name",
   "color_season": "one of: Deep Winter, True Winter, Bright Winter, Soft Summer, True Summer, Light Summer, Deep Autumn, True Autumn, Soft Autumn, Light Spring, True Spring, Bright Spring",
   "category": "one of: Tops, Bottoms, Outerwear, Shoes, Dresses, Accessories, Bags, Other",
@@ -96,6 +78,7 @@ async function analyzeWithClaude(imageUri) {
 export default function AddItemScreen({ navigate }) {
   const [imageUri, setImageUri] = useState(null);
   const [showImageOptions, setShowImageOptions] = useState(false);
+  const [removingBg, setRemovingBg] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -107,19 +90,51 @@ export default function AddItemScreen({ navigate }) {
 
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
 
-  // In the real APK build, this calls pickImage() from expo-image-picker.
-  // In Snack, we show a notice instead.
-  const handlePhotoAction = (useCamera) => {
-    Alert.alert(
-      'Camera not available in Snack',
-      'Photo capture works in the real APK build. For now, fill in details manually or paste an image URL below.',
-      [{ text: 'OK' }]
-    );
+  const pickImage = async (useCamera) => {
+    try {
+      let result;
+      if (useCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') { Alert.alert('Permission needed', 'Allow camera access to take photos.'); return; }
+        result = await ImagePicker.launchCameraAsync({ quality: 0.85, allowsEditing: true, aspect: [3, 4] });
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') { Alert.alert('Permission needed', 'Allow photo library access.'); return; }
+        result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, allowsEditing: true, aspect: [3, 4] });
+      }
+      if (!result.canceled) {
+        setImageUri(result.assets[0].uri);
+        setShowImageOptions(true);
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Could not access camera or photos.');
+    }
   };
 
-  const handleRemoveBackground = () => {
+  const handleRemoveBackground = async () => {
+    if (!REMOVEBG_API_KEY || REMOVEBG_API_KEY === 'YOUR_REMOVEBG_API_KEY') {
+      Alert.alert(
+        'API key needed',
+        'Add your Remove.bg API key to enable background removal.',
+        [
+          { text: 'Skip for now', onPress: () => handleKeepAsIs() },
+          { text: 'OK' },
+        ]
+      );
+      return;
+    }
+    setRemovingBg(true);
     setShowImageOptions(false);
-    runClaudeAnalysis(imageUri);
+    try {
+      const cleanedUri = await removeBackground(imageUri);
+      setImageUri(cleanedUri);
+      runClaudeAnalysis(cleanedUri);
+    } catch (e) {
+      Alert.alert('Background removal failed', 'Using original image.');
+      runClaudeAnalysis(imageUri);
+    } finally {
+      setRemovingBg(false);
+    }
   };
 
   const handleKeepAsIs = () => {
@@ -177,14 +192,13 @@ export default function AddItemScreen({ navigate }) {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
 
-        {/* Photo zone */}
         {!imageUri ? (
           <View style={styles.photoRow}>
-            <TouchableOpacity style={styles.photoBtn} onPress={() => handlePhotoAction(true)}>
+            <TouchableOpacity style={styles.photoBtn} onPress={() => pickImage(true)}>
               <Text style={styles.photoBtnIcon}>📷</Text>
               <Text style={styles.photoBtnLabel}>Take photo</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.photoBtn} onPress={() => handlePhotoAction(false)}>
+            <TouchableOpacity style={styles.photoBtn} onPress={() => pickImage(false)}>
               <Text style={styles.photoBtnIcon}>🖼️</Text>
               <Text style={styles.photoBtnLabel}>Choose photo</Text>
             </TouchableOpacity>
@@ -199,7 +213,6 @@ export default function AddItemScreen({ navigate }) {
           </View>
         )}
 
-        {/* Background removal options — shown after photo selected */}
         {showImageOptions && (
           <View style={styles.bgOptionsCard}>
             <Text style={styles.bgOptionsTitle}>Remove background?</Text>
@@ -219,27 +232,28 @@ export default function AddItemScreen({ navigate }) {
           </View>
         )}
 
-        {/* Status banners */}
+        {removingBg && (
+          <View style={styles.banner}>
+            <ActivityIndicator size="small" color={COLORS.sage} />
+            <Text style={styles.bannerText}>Removing background...</Text>
+          </View>
+        )}
         {analyzing && (
           <View style={styles.banner}>
             <ActivityIndicator size="small" color={COLORS.sage} />
             <Text style={styles.bannerText}>Claude is identifying your item...</Text>
           </View>
         )}
-        {!analyzing && !showImageOptions && (
-          <View style={[styles.banner, { backgroundColor: COLORS.goldLt }]}>
-            <Text style={[styles.bannerText, { color: COLORS.gold }]}>
-              📷  Camera works in the APK build · Fill in details manually for now
-            </Text>
+        {!analyzing && !removingBg && !showImageOptions && imageUri && (
+          <View style={[styles.banner, { backgroundColor: COLORS.sageLt }]}>
+            <Text style={[styles.bannerText, { color: COLORS.sageDk }]}>⚡  Fields pre-filled — review and edit before saving</Text>
           </View>
         )}
 
-        {/* Form */}
         <View style={styles.form}>
           <Field label="Brand" value={form.brand} onChangeText={v => set('brand', v)} placeholder="e.g. Arket" />
           <Field label="Item name *" value={form.name} onChangeText={v => set('name', v)} placeholder="e.g. Merino ribbed turtleneck" />
           <Field label="Description" value={form.description} onChangeText={v => set('description', v)} placeholder="Brief description" multiline />
-
           <View style={{ flexDirection: 'row' }}>
             <View style={{ flex: 1 }}>
               <Field label="Color" value={form.color} onChangeText={v => set('color', v)} placeholder="e.g. Ivory" />
@@ -249,20 +263,17 @@ export default function AddItemScreen({ navigate }) {
               <Field label="Price ($)" value={form.original_price} onChangeText={v => set('original_price', v)} placeholder="e.g. 129" keyboardType="decimal-pad" />
             </View>
           </View>
-
           <View style={styles.fieldBlock}>
             <Text style={styles.fieldLabel}>Color season</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
               {Object.keys(SEASONS).map(s => (
                 <TouchableOpacity key={s} onPress={() => set('color_season', s)}
-                  style={[styles.seasonChip, { backgroundColor: SEASONS[s].bg },
-                    form.color_season === s && styles.seasonChipSelected]}>
+                  style={[styles.seasonChip, { backgroundColor: SEASONS[s].bg }, form.color_season === s && styles.seasonChipSelected]}>
                   <Text style={[styles.seasonChipText, { color: SEASONS[s].text }]}>{s}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
           </View>
-
           <View style={styles.fieldBlock}>
             <Text style={styles.fieldLabel}>Category</Text>
             <View style={styles.catGrid}>
@@ -274,12 +285,10 @@ export default function AddItemScreen({ navigate }) {
               ))}
             </View>
           </View>
-
           <Text style={[styles.fieldLabel, { marginBottom: 8, marginTop: 20 }]}>Notes</Text>
           <Field value={form.note1} onChangeText={v => set('note1', v)} placeholder="e.g. Dry clean only" />
           <Field value={form.note2} onChangeText={v => set('note2', v)} placeholder="e.g. Bought in Paris" />
           <Field value={form.note3} onChangeText={v => set('note3', v)} placeholder="Additional note" />
-
           <Text style={[styles.fieldLabel, { marginBottom: 8, marginTop: 20 }]}>Custom fields</Text>
           <Field value={form.custom_label1} onChangeText={v => set('custom_label1', v)} placeholder="Custom field 1" />
           <Field value={form.custom_label2} onChangeText={v => set('custom_label2', v)} placeholder="Custom field 2" />
@@ -288,11 +297,8 @@ export default function AddItemScreen({ navigate }) {
       </ScrollView>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.7 }]}
-          onPress={handleSave} disabled={saving}>
-          {saving
-            ? <ActivityIndicator color={COLORS.cream} />
-            : <Text style={styles.saveBtnText}>Save to closet</Text>}
+        <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.7 }]} onPress={handleSave} disabled={saving}>
+          {saving ? <ActivityIndicator color={COLORS.cream} /> : <Text style={styles.saveBtnText}>Save to closet</Text>}
         </TouchableOpacity>
       </View>
     </SafeAreaView>

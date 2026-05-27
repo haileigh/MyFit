@@ -15,6 +15,7 @@ export default function App() {
   const [dbReady, setDbReady] = useState(false);
   const [screen, setScreen] = useState('Closet');
   const [detailId, setDetailId] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     initDB()
@@ -34,15 +35,16 @@ export default function App() {
   const navigate = (dest, params) => {
     if (dest === 'ItemDetail' && params?.itemId) setDetailId(params.itemId);
     if (dest === 'Closet') setDetailId(null);
+    setRefreshKey(k => k + 1);
     setScreen(dest);
   };
 
   const renderScreen = () => {
     if (screen === 'ItemDetail') return <ItemDetailScreen itemId={detailId} navigate={navigate} />;
     if (screen === 'Add') return <AddItemScreen navigate={navigate} />;
-    if (screen === 'Outfit') return <OutfitScreen navigate={navigate} />;
-    if (screen === 'Stats') return <StatsScreen navigate={navigate} />;
-    return <ClosetScreen navigate={navigate} />;
+    if (screen === 'Outfit') return <OutfitScreen navigate={navigate} refreshKey={refreshKey} />;
+    if (screen === 'Stats') return <StatsScreen navigate={navigate} refreshKey={refreshKey} />;
+    return <ClosetScreen navigate={navigate} refreshKey={refreshKey} />;
   };
 
   const tabs = [

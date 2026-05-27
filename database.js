@@ -2,19 +2,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ITEMS_KEY = 'myfit_items';
 const OUTFITS_KEY = 'myfit_outfits';
-let nextId = 1000;
 
-function makeId() { return nextId++; }
+function makeId() { return Date.now(); }
 
 export async function initDB() {
   const existing = await AsyncStorage.getItem(ITEMS_KEY);
   if (!existing) {
     await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(getSampleData()));
-  }
-  const items = await getAllItems();
-  if (items.length > 0) {
-    const maxId = Math.max(...items.map(i => i.id));
-    nextId = maxId + 1;
   }
 }
 
@@ -84,8 +78,18 @@ export async function logOutfitWear(id) {
     outfits[idx].times_worn = (outfits[idx].times_worn || 0) + 1;
     outfits[idx].last_worn = new Date().toISOString();
     await AsyncStorage.setItem(OUTFITS_KEY, JSON.stringify(outfits));
+
+    // Batch update all outfit items in a single read/write
+    const items = await getAllItems();
     const itemIds = JSON.parse(outfits[idx].item_ids);
-    for (const itemId of itemIds) { await logWear(itemId); }
+    itemIds.forEach(itemId => {
+      const itemIdx = items.findIndex(i => i.id === itemId);
+      if (itemIdx !== -1) {
+        items[itemIdx].times_worn = (items[itemIdx].times_worn || 0) + 1;
+        items[itemIdx].last_worn = new Date().toISOString();
+      }
+    });
+    await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(items));
   }
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Alert, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { getItemById, logWear, deleteItem } from './database';
 import { COLORS, SPACING, RADIUS, SEASONS } from './theme';
@@ -47,9 +47,13 @@ export default function ItemDetailScreen({ itemId, navigate }) {
       </View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <View style={styles.imgContainer}>
-          <View style={styles.imgPlaceholder}>
-            <Feather name="image" size={48} color={COLORS.ink3} />
-          </View>
+          {item.image_uri ? (
+            <Image source={{ uri: item.image_uri }} style={styles.img} resizeMode="cover" />
+          ) : (
+            <View style={styles.imgPlaceholder}>
+              <Feather name="image" size={48} color={COLORS.ink3} />
+            </View>
+          )}
         </View>
         <View style={styles.body}>
           {item.brand ? <Text style={styles.brand}>{item.brand.toUpperCase()}</Text> : null}
@@ -105,6 +109,7 @@ const styles = StyleSheet.create({
   iconBtn: { width: 38, height: 38, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.border, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center' },
   scroll: { paddingBottom: 120 },
   imgContainer: { marginHorizontal: SPACING.xl, borderRadius: RADIUS.xl, overflow: 'hidden', backgroundColor: COLORS.white, aspectRatio: 1, borderWidth: 0.5, borderColor: COLORS.border },
+  img: { width: '100%', height: '100%' },
   imgPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0EDE8' },
   body: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg },
   brand: { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 1.5, marginBottom: 4 },
