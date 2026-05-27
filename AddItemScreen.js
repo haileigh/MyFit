@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
-import Constants from 'expo-constants';
+const ANTHROPIC_API_KEY = 'YOUR_ANTHROPIC_API_KEY';
+const REMOVEBG_API_KEY  = 'YOUR_REMOVEBG_API_KEY';
 import { COLORS, SPACING, RADIUS, CATEGORIES, SEASONS } from './theme';
 import { insertItem } from './database';
 
