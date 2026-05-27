@@ -4,7 +4,7 @@
     "slug": "myfit",
     "version": "1.0.0",
     "orientation": "portrait",
-    "sdkVersion": "54.0.0",
+    "sdkVersion": "52.0.0",
     "android": {
       "package": "com.yourname.myfit",
       "versionCode": 1,
@@ -14,10 +14,15 @@
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
-    "extra": {
-      "eas": {
-        "projectId": "16d982ba-cf61-488b-ba6c-95956a5a929a"
-      }
-    }
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "2.1.0"
+          }
+        }
+      ]
+    ]
   }
 }
