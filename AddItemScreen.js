@@ -5,16 +5,11 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
-const ANTHROPIC_API_KEY = 'YOUR_ANTHROPIC_API_KEY';
-const REMOVEBG_API_KEY  = 'YOUR_REMOVEBG_API_KEY';
 import { COLORS, SPACING, RADIUS, CATEGORIES, SEASONS } from './theme';
 import { insertItem } from './database';
 
-// ── API KEYS ────────────────────────────────────────────────
-// Set these in app.json under "extra": { "anthropicKey": "...", "removebgKey": "..." }
-const ANTHROPIC_API_KEY = Constants.expoConfig?.extra?.anthropicKey || '';
-const REMOVEBG_API_KEY  = Constants.expoConfig?.extra?.removebgKey  || '';
-// ────────────────────────────────────────────────────────────
+const ANTHROPIC_API_KEY = 'YOUR_ANTHROPIC_API_KEY';
+const REMOVEBG_API_KEY  = 'YOUR_REMOVEBG_API_KEY';
 
 async function removeBackground(imageUri) {
   // ── BACKGROUND REMOVAL ──────────────────────────────────
