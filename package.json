@@ -15,7 +15,7 @@
     "expo-file-system": "~17.0.1",
     "expo-font": "~13.0.4",
     "expo-image-picker": "~16.0.6",
-    "expo-modules-core": "~1.12.22",
+    "expo-modules-core": "1.12.22",
     "react": "18.3.1",
     "react-native": "0.76.5",
     "@babel/core": "7.25.2",
