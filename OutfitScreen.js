@@ -68,7 +68,7 @@ function scoreOutfit(outfit) {
   return 'Eclectic and bold — intentional contrast';
 }
 
-export default function OutfitScreen({ navigate, refreshKey }) {
+export default function OutfitScreen({ navigate }) {
   const [items, setItems] = useState([]);
   const [mode, setMode] = useState('random');
   const [outfit, setOutfit] = useState([]);
@@ -80,7 +80,7 @@ export default function OutfitScreen({ navigate, refreshKey }) {
       setItems(data);
       setOutfit(buildOutfit(data, 'random', null));
     });
-  }, [refreshKey]);
+  }, []);
 
   const shuffle = () => setOutfit(buildOutfit(items, mode, anchorId));
 
@@ -126,7 +126,7 @@ export default function OutfitScreen({ navigate, refreshKey }) {
           <View style={styles.anchorSection}>
             <Text style={styles.anchorLabel}>Start with</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {items.map(item => (
+              {items.slice(0, 12).map(item => (
                 <TouchableOpacity key={item.id} style={styles.anchorChip} onPress={() => handleAnchor(item.id)}>
                   <View style={[styles.anchorImg, anchorId === item.id && styles.anchorImgSelected]}>
                     <Feather name="image" size={16} color={COLORS.ink3} />

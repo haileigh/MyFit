@@ -7,20 +7,18 @@ import ItemDetailScreen from './ItemDetailScreen';
 import AddItemScreen from './AddItemScreen';
 import OutfitScreen from './OutfitScreen';
 import StatsScreen from './StatsScreen';
+import SettingsScreen from './SettingsScreen';
 
 import { initDB } from './database';
 import { COLORS } from './theme';
 
 export default function App() {
   const [dbReady, setDbReady] = useState(false);
-  const [screen, setScreen] = useState('Closet');
+  const [screen, setScreen]   = useState('Closet');
   const [detailId, setDetailId] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    initDB()
-      .then(() => setDbReady(true))
-      .catch(() => setDbReady(true));
+    initDB().then(() => setDbReady(true)).catch(() => setDbReady(true));
   }, []);
 
   if (!dbReady) {
@@ -35,29 +33,31 @@ export default function App() {
   const navigate = (dest, params) => {
     if (dest === 'ItemDetail' && params?.itemId) setDetailId(params.itemId);
     if (dest === 'Closet') setDetailId(null);
-    setRefreshKey(k => k + 1);
     setScreen(dest);
   };
 
   const renderScreen = () => {
     if (screen === 'ItemDetail') return <ItemDetailScreen itemId={detailId} navigate={navigate} />;
-    if (screen === 'Add') return <AddItemScreen navigate={navigate} />;
-    if (screen === 'Outfit') return <OutfitScreen navigate={navigate} refreshKey={refreshKey} />;
-    if (screen === 'Stats') return <StatsScreen navigate={navigate} refreshKey={refreshKey} />;
-    return <ClosetScreen navigate={navigate} refreshKey={refreshKey} />;
+    if (screen === 'Add')        return <AddItemScreen navigate={navigate} />;
+    if (screen === 'Outfit')     return <OutfitScreen navigate={navigate} />;
+    if (screen === 'Stats')      return <StatsScreen navigate={navigate} />;
+    if (screen === 'Settings')   return <SettingsScreen navigate={navigate} />;
+    return <ClosetScreen navigate={navigate} />;
   };
 
   const tabs = [
-    { name: 'Closet', icon: 'grid' },
-    { name: 'Outfit', icon: 'layers' },
-    { name: 'Add',    icon: 'plus-circle' },
-    { name: 'Stats',  icon: 'bar-chart-2' },
+    { name: 'Closet',   icon: 'grid' },
+    { name: 'Outfit',   icon: 'layers' },
+    { name: 'Add',      icon: 'plus-circle' },
+    { name: 'Stats',    icon: 'bar-chart-2' },
+    { name: 'Settings', icon: 'settings' },
   ];
 
-  const activeTab = screen === 'ItemDetail' ? 'Closet'
-    : screen === 'Add' ? 'Add'
-    : screen === 'Outfit' ? 'Outfit'
-    : screen === 'Stats' ? 'Stats'
+  const activeTab = ['ItemDetail','Closet'].includes(screen) ? 'Closet'
+    : screen === 'Add'      ? 'Add'
+    : screen === 'Outfit'   ? 'Outfit'
+    : screen === 'Stats'    ? 'Stats'
+    : screen === 'Settings' ? 'Settings'
     : 'Closet';
 
   return (
@@ -83,12 +83,12 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.cream },
-  screenArea: { flex: 1 },
-  loading: { flex: 1, backgroundColor: COLORS.cream, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  container:   { flex: 1, backgroundColor: COLORS.cream },
+  screenArea:  { flex: 1 },
+  loading:     { flex: 1, backgroundColor: COLORS.cream, alignItems: 'center', justifyContent: 'center', gap: 8 },
   loadingText: { fontSize: 32, fontWeight: '500', color: COLORS.ink, letterSpacing: -1 },
-  loadingSub: { fontSize: 13, color: COLORS.ink3 },
-  tabBar: { flexDirection: 'row', backgroundColor: COLORS.cream, borderTopWidth: 0.5, borderTopColor: COLORS.border, paddingTop: 10, paddingBottom: 24 },
-  tabItem: { flex: 1, alignItems: 'center', gap: 3 },
-  tabLabel: { fontSize: 10, fontWeight: '500' },
+  loadingSub:  { fontSize: 13, color: COLORS.ink3 },
+  tabBar:      { flexDirection: 'row', backgroundColor: COLORS.cream, borderTopWidth: 0.5, borderTopColor: COLORS.border, paddingTop: 10, paddingBottom: 24 },
+  tabItem:     { flex: 1, alignItems: 'center', gap: 3 },
+  tabLabel:    { fontSize: 10, fontWeight: '500' },
 });

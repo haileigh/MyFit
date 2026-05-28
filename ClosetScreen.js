@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, SafeAreaView, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { getAllItems } from './database';
 import { COLORS, SPACING, RADIUS, SEASONS, CATEGORIES } from './theme';
 
 const FILTERS = ['All', ...CATEGORIES];
 
-export default function ClosetScreen({ navigate, refreshKey }) {
+export default function ClosetScreen({ navigate }) {
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState('All');
 
-  useEffect(() => { load(); }, [refreshKey]);
+  useEffect(() => { load(); }, []);
   const load = async () => setItems(await getAllItems());
   const filtered = filter === 'All' ? items : items.filter(i => i.category === filter);
 
@@ -60,13 +60,9 @@ export default function ClosetScreen({ navigate, refreshKey }) {
                 activeOpacity={0.85}
               >
                 <View style={styles.imgContainer}>
-                  {item.image_uri ? (
-                    <Image source={{ uri: item.image_uri }} style={styles.img} resizeMode="cover" />
-                  ) : (
-                    <View style={styles.imgPlaceholder}>
-                      <Feather name="image" size={28} color={COLORS.ink3} />
-                    </View>
-                  )}
+                  <View style={styles.imgPlaceholder}>
+                    <Feather name="image" size={28} color={COLORS.ink3} />
+                  </View>
                   <View style={styles.wornBadge}>
                     <Text style={styles.wornText}>{item.times_worn}×</Text>
                   </View>
@@ -103,7 +99,6 @@ const styles = StyleSheet.create({
   grid: { paddingHorizontal: SPACING.xl, paddingBottom: 20 },
   card: { flex: 1, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, borderWidth: 0.5, borderColor: COLORS.border, marginBottom: 12, overflow: 'hidden' },
   imgContainer: { width: '100%', aspectRatio: 3/4, backgroundColor: '#F0EDE8', position: 'relative' },
-  img: { width: '100%', height: '100%' },
   imgPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   wornBadge: { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(28,26,23,0.65)', borderRadius: RADIUS.full, paddingHorizontal: 7, paddingVertical: 3 },
   wornText: { fontSize: 10, fontWeight: '500', color: COLORS.cream },
