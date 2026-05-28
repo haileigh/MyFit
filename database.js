@@ -1,14 +1,47 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const ITEMS_KEY = 'myfit_items';
-const OUTFITS_KEY = 'myfit_outfits';
+const ITEMS_KEY    = 'myfit_items';
+const OUTFITS_KEY  = 'myfit_outfits';
+const SETTINGS_KEY = 'myfit_settings';
+let nextId = 1000;
 
-function makeId() { return Date.now(); }
+function makeId() { return nextId++; }
 
+// ── Default settings ───────────────────────────────────────────
+const DEFAULT_SETTINGS = {
+  currency: '$',
+  cpwGoal: null,
+  hiddenSeasons: [],
+  customFields: [
+    { key: 'custom_1', label: 'Occasion' },
+    { key: 'custom_2', label: '' },
+    { key: 'custom_3', label: '' },
+  ],
+};
+
+export async function getSettings() {
+  try {
+    const data = await AsyncStorage.getItem(SETTINGS_KEY);
+    return data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : { ...DEFAULT_SETTINGS };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+export async function saveSettings(settings) {
+  await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+// ── Items ──────────────────────────────────────────────────────
 export async function initDB() {
   const existing = await AsyncStorage.getItem(ITEMS_KEY);
   if (!existing) {
     await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(getSampleData()));
+  }
+  const items = await getAllItems();
+  if (items.length > 0) {
+    const maxId = Math.max(...items.map(i => i.id));
+    nextId = maxId + 1;
   }
 }
 
@@ -36,6 +69,15 @@ export async function insertItem(item) {
   return newItem.id;
 }
 
+export async function updateItem(id, fields) {
+  const items = await getAllItems();
+  const idx = items.findIndex(i => i.id === id);
+  if (idx !== -1) {
+    items[idx] = { ...items[idx], ...fields, id, updated_at: new Date().toISOString() };
+    await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(items));
+  }
+}
+
 export async function deleteItem(id) {
   const items = await getAllItems();
   await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(items.filter(i => i.id !== id)));
@@ -51,6 +93,7 @@ export async function logWear(id) {
   }
 }
 
+// ── Outfits ────────────────────────────────────────────────────
 export async function getAllOutfits() {
   const data = await AsyncStorage.getItem(OUTFITS_KEY);
   return data ? JSON.parse(data) : [];
@@ -78,21 +121,12 @@ export async function logOutfitWear(id) {
     outfits[idx].times_worn = (outfits[idx].times_worn || 0) + 1;
     outfits[idx].last_worn = new Date().toISOString();
     await AsyncStorage.setItem(OUTFITS_KEY, JSON.stringify(outfits));
-
-    // Batch update all outfit items in a single read/write
-    const items = await getAllItems();
     const itemIds = JSON.parse(outfits[idx].item_ids);
-    itemIds.forEach(itemId => {
-      const itemIdx = items.findIndex(i => i.id === itemId);
-      if (itemIdx !== -1) {
-        items[itemIdx].times_worn = (items[itemIdx].times_worn || 0) + 1;
-        items[itemIdx].last_worn = new Date().toISOString();
-      }
-    });
-    await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(items));
+    for (const itemId of itemIds) { await logWear(itemId); }
   }
 }
 
+// ── Stats ──────────────────────────────────────────────────────
 export async function getStats() {
   const items = await getAllItems();
   const total = items.length;
@@ -111,15 +145,16 @@ export async function getStats() {
   return { total, totalWorn, neverWorn, mostWorn, byCategory, bySeason, unworn };
 }
 
+// ── Sample data ────────────────────────────────────────────────
 function getSampleData() {
   return [
-    { id: 1, brand: 'Toteme', name: 'Double-breasted coat', description: 'Structured wool-blend coat', color: 'Camel', color_season: 'Deep Winter', category: 'Outerwear', original_price: 580, times_worn: 7, last_worn: null, image_uri: null, note1: 'Dry clean only.', note2: '', note3: '', custom_label1: 'Occasion', custom_label2: '', custom_label3: '', created_at: new Date().toISOString() },
-    { id: 2, brand: 'Agolde', name: '90s pinch waist jeans', description: 'High-rise relaxed jeans', color: 'Indigo', color_season: 'Deep Winter', category: 'Bottoms', original_price: 228, times_worn: 18, last_worn: null, image_uri: null, note1: 'Size down one.', note2: '', note3: '', custom_label1: 'Occasion', custom_label2: '', custom_label3: '', created_at: new Date().toISOString() },
-    { id: 3, brand: 'Arket', name: 'Merino midi dress', description: 'Ribbed knit dress', color: 'Burgundy', color_season: 'Deep Winter', category: 'Dresses', original_price: 179, times_worn: 5, last_worn: null, image_uri: null, note1: 'Hand wash cold.', note2: '', note3: '', custom_label1: '', custom_label2: '', custom_label3: '', created_at: new Date().toISOString() },
-    { id: 4, brand: 'New Balance', name: '990v5 sneakers', description: 'Classic running sneaker', color: 'Grey', color_season: 'Soft Summer', category: 'Shoes', original_price: 185, times_worn: 22, last_worn: null, image_uri: null, note1: 'Go up half a size.', note2: '', note3: '', custom_label1: '', custom_label2: '', custom_label3: '', created_at: new Date().toISOString() },
-    { id: 5, brand: 'Acne Studios', name: 'Logo wool scarf', description: 'Oversized fringed scarf', color: 'Ivory', color_season: 'Soft Summer', category: 'Accessories', original_price: 320, times_worn: 9, last_worn: null, image_uri: null, note1: 'Bought in Stockholm.', note2: '', note3: '', custom_label1: 'Trip', custom_label2: '', custom_label3: '', created_at: new Date().toISOString() },
-    { id: 6, brand: 'Polène', name: 'Numéro un mini', description: 'Structured leather bag', color: 'Taupe', color_season: 'True Autumn', category: 'Bags', original_price: 295, times_worn: 14, last_worn: null, image_uri: null, note1: 'Very durable.', note2: '', note3: '', custom_label1: '', custom_label2: '', custom_label3: '', created_at: new Date().toISOString() },
-    { id: 7, brand: 'Madewell', name: 'The Zahara loafer', description: 'Block-heel leather loafer', color: 'Black', color_season: 'Deep Winter', category: 'Shoes', original_price: 148, times_worn: 11, last_worn: null, image_uri: null, note1: 'Resoleable.', note2: '', note3: '', custom_label1: '', custom_label2: '', custom_label3: '', created_at: new Date().toISOString() },
-    { id: 8, brand: 'COS', name: 'Chunky ribbed sweater', description: 'Relaxed oversized knit', color: 'Oatmeal', color_season: 'Soft Summer', category: 'Tops', original_price: 99, times_worn: 6, last_worn: null, image_uri: null, note1: 'Dry flat.', note2: '', note3: '', custom_label1: '', custom_label2: '', custom_label3: '', created_at: new Date().toISOString() },
+    { id: 1, brand: 'Toteme', name: 'Double-breasted coat', description: 'Structured wool-blend coat', color: 'Camel', color_season: 'Deep Winter', category: 'Outerwear', original_price: 580, times_worn: 7, last_worn: null, image_uri: null, note1: 'Dry clean only.', note2: '', note3: '', custom_1: 'Work', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
+    { id: 2, brand: 'Agolde', name: '90s pinch waist jeans', description: 'High-rise relaxed jeans', color: 'Indigo', color_season: 'Deep Winter', category: 'Bottoms', original_price: 228, times_worn: 18, last_worn: null, image_uri: null, note1: 'Size down one.', note2: '', note3: '', custom_1: 'Casual', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
+    { id: 3, brand: 'Arket', name: 'Merino midi dress', description: 'Ribbed knit dress', color: 'Burgundy', color_season: 'Deep Winter', category: 'Dresses', original_price: 179, times_worn: 5, last_worn: null, image_uri: null, note1: 'Hand wash cold.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
+    { id: 4, brand: 'New Balance', name: '990v5 sneakers', description: 'Classic running sneaker', color: 'Grey', color_season: 'Soft Summer', category: 'Shoes', original_price: 185, times_worn: 22, last_worn: null, image_uri: null, note1: 'Go up half a size.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
+    { id: 5, brand: 'Acne Studios', name: 'Logo wool scarf', description: 'Oversized fringed scarf', color: 'Ivory', color_season: 'Soft Summer', category: 'Accessories', original_price: 320, times_worn: 9, last_worn: null, image_uri: null, note1: 'Bought in Stockholm.', note2: '', note3: '', custom_1: 'Travel', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
+    { id: 6, brand: 'Polène', name: 'Numéro un mini', description: 'Structured leather bag', color: 'Taupe', color_season: 'True Autumn', category: 'Bags', original_price: 295, times_worn: 14, last_worn: null, image_uri: null, note1: 'Very durable.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
+    { id: 7, brand: 'Madewell', name: 'The Zahara loafer', description: 'Block-heel leather loafer', color: 'Black', color_season: 'Deep Winter', category: 'Shoes', original_price: 148, times_worn: 11, last_worn: null, image_uri: null, note1: 'Resoleable.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
+    { id: 8, brand: 'COS', name: 'Chunky ribbed sweater', description: 'Relaxed oversized knit', color: 'Oatmeal', color_season: 'Soft Summer', category: 'Tops', original_price: 99, times_worn: 6, last_worn: null, image_uri: null, note1: 'Dry flat.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
   ];
 }
