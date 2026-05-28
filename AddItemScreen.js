@@ -4,35 +4,29 @@ import {
   TextInput, SafeAreaView, ActivityIndicator, Alert, Image,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { COLORS, SPACING, RADIUS, CATEGORIES, SEASONS } from './theme';
-import { insertItem } from './database';
+import { insertItem, getSettings } from './database';
 
+// ── API KEYS ────────────────────────────────────────────────
 const ANTHROPIC_API_KEY = 'YOUR_ANTHROPIC_API_KEY';
 const REMOVEBG_API_KEY  = 'YOUR_REMOVEBG_API_KEY';
+// ────────────────────────────────────────────────────────────
 
 async function removeBackground(imageUri) {
-  // ── BACKGROUND REMOVAL ──────────────────────────────────
-  // Uncomment when you have a Remove.bg API key:
-  //
-  // const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' });
-  // const response = await fetch('https://api.remove.bg/v1.0/removebg', {
-  //   method: 'POST',
-  //   headers: { 'X-Api-Key': REMOVEBG_API_KEY, 'Content-Type': 'application/json' },
-  //   body: JSON.stringify({ image_file_b64: base64, size: 'auto' }),
-  // });
-  // const data = await response.json();
-  // return 'data:image/png;base64,' + data.result_b64;
-  //
-  // For now, return original image:
+  // Stub — return original image until Remove.bg key is added
   return imageUri;
 }
 
 async function analyzeWithClaude(imageUri) {
   if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'YOUR_ANTHROPIC_API_KEY') return null;
   try {
-    const base64 = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: FileSystem.EncodingType.Base64,
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
     });
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -42,17 +36,17 @@ async function analyzeWithClaude(imageUri) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1024,
         messages: [{
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
-            { type: 'text', text: `You are a fashion expert and color analyst. Analyze this clothing item and return ONLY a JSON object with no extra text:
+            { type: 'text', text: `Analyze this clothing item. Return ONLY a JSON object, no extra text:
 {
-  "brand": "brand name if visible on tag or logo, else empty string",
+  "brand": "brand name if visible, else empty string",
   "name": "item name e.g. Merino ribbed turtleneck",
-  "description": "one sentence describing style and fabric if visible",
+  "description": "one sentence style and fabric description",
   "color": "primary color name",
   "color_season": "one of: Deep Winter, True Winter, Bright Winter, Soft Summer, True Summer, Light Summer, Deep Autumn, True Autumn, Soft Autumn, Light Spring, True Spring, Bright Spring",
   "category": "one of: Tops, Bottoms, Outerwear, Shoes, Dresses, Accessories, Bags, Other",
@@ -71,22 +65,26 @@ async function analyzeWithClaude(imageUri) {
   }
 }
 
+const EMPTY_FORM = {
+  brand: '', name: '', description: '', color: '',
+  color_season: '', category: '', original_price: '',
+  note1: '', note2: '', note3: '',
+};
+
 export default function AddItemScreen({ navigate }) {
+  const [step, setStep]         = useState('photo'); // photo | form
   const [imageUri, setImageUri] = useState(null);
-  const [showImageOptions, setShowImageOptions] = useState(false);
-  const [removingBg, setRemovingBg] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    brand: '', name: '', description: '', color: '',
-    color_season: '', category: '', original_price: '',
-    note1: '', note2: '', note3: '',
-    custom_label1: '', custom_label2: '', custom_label3: '',
-  });
+  const [saving, setSaving]     = useState(false);
+  const [form, setForm]         = useState(EMPTY_FORM);
+  const [settings, setSettings] = useState(null);
+
+  // Load settings for custom fields + seasons
+  useState(() => { getSettings().then(setSettings); });
 
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
 
-  const pickImage = async (useCamera) => {
+  const handlePickImage = async (useCamera) => {
     try {
       let result;
       if (useCamera) {
@@ -99,170 +97,144 @@ export default function AddItemScreen({ navigate }) {
         result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, allowsEditing: true, aspect: [3, 4] });
       }
       if (!result.canceled) {
-        setImageUri(result.assets[0].uri);
-        setShowImageOptions(true);
+        const uri = result.assets[0].uri;
+        setImageUri(uri);
+        setAnalyzing(true);
+        try {
+          const cleaned = await removeBackground(uri);
+          const analysis = await analyzeWithClaude(cleaned || uri);
+          if (analysis) {
+            setForm(prev => ({
+              ...prev,
+              brand:        analysis.brand        || '',
+              name:         analysis.name         || '',
+              description:  analysis.description  || '',
+              color:        analysis.color        || '',
+              color_season: analysis.color_season || '',
+              category:     analysis.category     || '',
+              original_price: analysis.original_price ? String(analysis.original_price) : '',
+            }));
+          }
+        } finally {
+          setAnalyzing(false);
+          setStep('form');
+        }
       }
     } catch (e) {
       Alert.alert('Error', 'Could not access camera or photos.');
-    }
-  };
-
-  const handleRemoveBackground = async () => {
-    if (!REMOVEBG_API_KEY || REMOVEBG_API_KEY === 'YOUR_REMOVEBG_API_KEY') {
-      Alert.alert(
-        'API key needed',
-        'Add your Remove.bg API key to enable background removal.',
-        [
-          { text: 'Skip for now', onPress: () => handleKeepAsIs() },
-          { text: 'OK' },
-        ]
-      );
-      return;
-    }
-    setRemovingBg(true);
-    setShowImageOptions(false);
-    try {
-      const cleanedUri = await removeBackground(imageUri);
-      setImageUri(cleanedUri);
-      runClaudeAnalysis(cleanedUri);
-    } catch (e) {
-      Alert.alert('Background removal failed', 'Using original image.');
-      runClaudeAnalysis(imageUri);
-    } finally {
-      setRemovingBg(false);
-    }
-  };
-
-  const handleKeepAsIs = () => {
-    setShowImageOptions(false);
-    runClaudeAnalysis(imageUri);
-  };
-
-  const runClaudeAnalysis = async (uri) => {
-    if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'YOUR_ANTHROPIC_API_KEY') return;
-    setAnalyzing(true);
-    try {
-      const result = await analyzeWithClaude(uri);
-      if (result) {
-        setForm(prev => ({
-          ...prev,
-          brand: result.brand || prev.brand,
-          name: result.name || prev.name,
-          description: result.description || prev.description,
-          color: result.color || prev.color,
-          color_season: result.color_season || prev.color_season,
-          category: result.category || prev.category,
-          original_price: result.original_price ? String(result.original_price) : prev.original_price,
-        }));
-      }
-    } finally {
       setAnalyzing(false);
     }
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) { Alert.alert('Name required', 'Please add an item name.'); return; }
+    if (!form.name.trim()) { Alert.alert('Name required', 'Please enter a name for this item.'); return; }
     setSaving(true);
     try {
+      const customVals = {};
+      if (settings) {
+        (settings.customFields || []).forEach(f => { customVals[f.key] = form[f.key] || ''; });
+      }
       await insertItem({
         ...form,
+        ...customVals,
         original_price: form.original_price ? parseFloat(form.original_price) : null,
-        image_uri: imageUri || null,
+        image_uri: imageUri,
       });
-      setForm({ brand:'',name:'',description:'',color:'',color_season:'',category:'',original_price:'',note1:'',note2:'',note3:'',custom_label1:'',custom_label2:'',custom_label3:'' });
-      setImageUri(null);
-      setShowImageOptions(false);
       navigate('Closet');
     } catch (e) {
-      Alert.alert('Save failed', 'Could not save item. Try again.');
+      Alert.alert('Error', 'Could not save item.');
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Add item</Text>
-      </View>
+  const currency = settings?.currency || '$';
+  const visibleSeasons = settings
+    ? Object.keys(SEASONS).filter(s => !(settings.hiddenSeasons || []).includes(s))
+    : Object.keys(SEASONS);
+  const customFields = (settings?.customFields || []).filter(f => f.label);
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-
-        {!imageUri ? (
-          <View style={styles.photoRow}>
-            <TouchableOpacity style={styles.photoBtn} onPress={() => pickImage(true)}>
-              <Text style={styles.photoBtnIcon}>📷</Text>
-              <Text style={styles.photoBtnLabel}>Take photo</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.photoBtn} onPress={() => pickImage(false)}>
-              <Text style={styles.photoBtnIcon}>🖼️</Text>
-              <Text style={styles.photoBtnLabel}>Choose photo</Text>
-            </TouchableOpacity>
+  // ── PHOTO STEP ───────────────────────────────────────────
+  if (step === 'photo') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={() => navigate('Closet')} style={styles.iconBtn}>
+            <Feather name="x" size={20} color={COLORS.ink} />
+          </TouchableOpacity>
+          <Text style={styles.topTitle}>Add item</Text>
+          <View style={{ width: 38 }} />
+        </View>
+        {analyzing ? (
+          <View style={styles.analyzing}>
+            <ActivityIndicator size="large" color={COLORS.sage} />
+            <Text style={styles.analyzingTitle}>Analyzing your item...</Text>
+            <Text style={styles.analyzingSub}>Claude is identifying brand, color, and season</Text>
           </View>
         ) : (
-          <View style={styles.previewContainer}>
-            <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="contain" />
-            <TouchableOpacity style={styles.changeBtn}
-              onPress={() => { setImageUri(null); setShowImageOptions(false); }}>
-              <Text style={styles.changeBtnText}>✕  Change photo</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {showImageOptions && (
-          <View style={styles.bgOptionsCard}>
-            <Text style={styles.bgOptionsTitle}>Remove background?</Text>
-            <Text style={styles.bgOptionsSub}>Clean backgrounds make your closet look great</Text>
-            <View style={styles.bgOptionsRow}>
-              <TouchableOpacity style={styles.bgOptionBtn} onPress={handleRemoveBackground}>
-                <Text style={styles.bgOptionIcon}>✨</Text>
-                <Text style={styles.bgOptionLabel}>Remove background</Text>
-                <Text style={styles.bgOptionSub}>Needs API key</Text>
+          <View style={styles.photoStep}>
+            {imageUri
+              ? <Image source={{ uri: imageUri }} style={styles.previewImg} resizeMode="cover" />
+              : (
+                <View style={styles.photoPlaceholder}>
+                  <Feather name="camera" size={48} color={COLORS.ink3} />
+                  <Text style={styles.photoPlaceholderText}>Take or choose a photo</Text>
+                </View>
+              )}
+            <View style={styles.photoActions}>
+              <TouchableOpacity style={styles.photoBtn} onPress={() => handlePickImage(true)}>
+                <Feather name="camera" size={20} color={COLORS.ink} />
+                <Text style={styles.photoBtnText}>Take photo</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.bgOptionBtn, styles.bgOptionBtnAlt]} onPress={handleKeepAsIs}>
-                <Text style={styles.bgOptionIcon}>📌</Text>
-                <Text style={[styles.bgOptionLabel, { color: COLORS.ink }]}>Keep as is</Text>
-                <Text style={[styles.bgOptionSub, { color: COLORS.ink2 }]}>Use original photo</Text>
+              <TouchableOpacity style={styles.photoBtn} onPress={() => handlePickImage(false)}>
+                <Feather name="image" size={20} color={COLORS.ink} />
+                <Text style={styles.photoBtnText}>Choose photo</Text>
               </TouchableOpacity>
             </View>
+            {imageUri && (
+              <TouchableOpacity style={styles.skipBtn} onPress={() => setStep('form')}>
+                <Text style={styles.skipBtnText}>Skip analysis, fill manually →</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
+      </SafeAreaView>
+    );
+  }
 
-        {removingBg && (
-          <View style={styles.banner}>
-            <ActivityIndicator size="small" color={COLORS.sage} />
-            <Text style={styles.bannerText}>Removing background...</Text>
+  // ── FORM STEP ────────────────────────────────────────────
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => setStep('photo')} style={styles.iconBtn}>
+          <Feather name="arrow-left" size={20} color={COLORS.ink} />
+        </TouchableOpacity>
+        <Text style={styles.topTitle}>Item details</Text>
+        <TouchableOpacity onPress={handleSave} style={[styles.saveTopBtn, saving && { opacity: 0.6 }]} disabled={saving}>
+          {saving
+            ? <ActivityIndicator size="small" color={COLORS.cream} />
+            : <Text style={styles.saveTopBtnText}>Save</Text>}
+        </TouchableOpacity>
+      </View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScroll}>
+        {imageUri && (
+          <View style={styles.formImgContainer}>
+            <Image source={{ uri: imageUri }} style={styles.formImg} resizeMode="cover" />
           </View>
         )}
-        {analyzing && (
-          <View style={styles.banner}>
-            <ActivityIndicator size="small" color={COLORS.sage} />
-            <Text style={styles.bannerText}>Claude is identifying your item...</Text>
-          </View>
-        )}
-        {!analyzing && !removingBg && !showImageOptions && imageUri && (
-          <View style={[styles.banner, { backgroundColor: COLORS.sageLt }]}>
-            <Text style={[styles.bannerText, { color: COLORS.sageDk }]}>⚡  Fields pre-filled — review and edit before saving</Text>
-          </View>
-        )}
-
         <View style={styles.form}>
           <Field label="Brand" value={form.brand} onChangeText={v => set('brand', v)} placeholder="e.g. Arket" />
           <Field label="Item name *" value={form.name} onChangeText={v => set('name', v)} placeholder="e.g. Merino ribbed turtleneck" />
           <Field label="Description" value={form.description} onChangeText={v => set('description', v)} placeholder="Brief description" multiline />
           <View style={{ flexDirection: 'row' }}>
-            <View style={{ flex: 1 }}>
-              <Field label="Color" value={form.color} onChangeText={v => set('color', v)} placeholder="e.g. Ivory" />
-            </View>
+            <View style={{ flex: 1 }}><Field label="Color" value={form.color} onChangeText={v => set('color', v)} placeholder="e.g. Ivory" /></View>
             <View style={{ width: 12 }} />
-            <View style={{ flex: 1 }}>
-              <Field label="Price ($)" value={form.original_price} onChangeText={v => set('original_price', v)} placeholder="e.g. 129" keyboardType="decimal-pad" />
-            </View>
+            <View style={{ flex: 1 }}><Field label={`Price (${currency})`} value={form.original_price} onChangeText={v => set('original_price', v)} placeholder="e.g. 129" keyboardType="decimal-pad" /></View>
           </View>
           <View style={styles.fieldBlock}>
             <Text style={styles.fieldLabel}>Color season</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
-              {Object.keys(SEASONS).map(s => (
+              {visibleSeasons.map(s => (
                 <TouchableOpacity key={s} onPress={() => set('color_season', s)}
                   style={[styles.seasonChip, { backgroundColor: SEASONS[s].bg }, form.color_season === s && styles.seasonChipSelected]}>
                   <Text style={[styles.seasonChipText, { color: SEASONS[s].text }]}>{s}</Text>
@@ -282,21 +254,19 @@ export default function AddItemScreen({ navigate }) {
             </View>
           </View>
           <Text style={[styles.fieldLabel, { marginBottom: 8, marginTop: 20 }]}>Notes</Text>
-          <Field value={form.note1} onChangeText={v => set('note1', v)} placeholder="e.g. Dry clean only" />
-          <Field value={form.note2} onChangeText={v => set('note2', v)} placeholder="e.g. Bought in Paris" />
-          <Field value={form.note3} onChangeText={v => set('note3', v)} placeholder="Additional note" />
-          <Text style={[styles.fieldLabel, { marginBottom: 8, marginTop: 20 }]}>Custom fields</Text>
-          <Field value={form.custom_label1} onChangeText={v => set('custom_label1', v)} placeholder="Custom field 1" />
-          <Field value={form.custom_label2} onChangeText={v => set('custom_label2', v)} placeholder="Custom field 2" />
-          <Field value={form.custom_label3} onChangeText={v => set('custom_label3', v)} placeholder="Custom field 3" />
+          <Field value={form.note1} onChangeText={v => set('note1', v)} placeholder="Note 1" />
+          <Field value={form.note2} onChangeText={v => set('note2', v)} placeholder="Note 2" />
+          <Field value={form.note3} onChangeText={v => set('note3', v)} placeholder="Note 3" />
+          {customFields.length > 0 && (
+            <>
+              <Text style={[styles.fieldLabel, { marginBottom: 8, marginTop: 20 }]}>Custom fields</Text>
+              {customFields.map(f => (
+                <Field key={f.key} label={f.label} value={form[f.key] || ''} onChangeText={v => set(f.key, v)} placeholder={f.label} />
+              ))}
+            </>
+          )}
         </View>
       </ScrollView>
-
-      <View style={styles.footer}>
-        <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.7 }]} onPress={handleSave} disabled={saving}>
-          {saving ? <ActivityIndicator color={COLORS.cream} /> : <Text style={styles.saveBtnText}>Save to closet</Text>}
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
@@ -315,43 +285,40 @@ function Field({ label, value, onChangeText, placeholder, multiline, keyboardTyp
   );
 }
 
+import { Feather } from '@expo/vector-icons';
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.cream },
-  header: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg, paddingBottom: SPACING.md },
-  title: { fontSize: 24, fontWeight: '600', color: COLORS.ink },
-  scroll: { paddingBottom: 120 },
-  photoRow: { flexDirection: 'row', gap: 12, paddingHorizontal: SPACING.xl, marginBottom: SPACING.md },
-  photoBtn: { flex: 1, height: 120, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, borderWidth: 1.5, borderColor: COLORS.borderMed, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  photoBtnIcon: { fontSize: 28 },
-  photoBtnLabel: { fontSize: 12, fontWeight: '500', color: COLORS.ink2 },
-  previewContainer: { marginHorizontal: SPACING.xl, marginBottom: SPACING.md },
-  preview: { width: '100%', height: 260, borderRadius: RADIUS.lg, backgroundColor: COLORS.white, borderWidth: 0.5, borderColor: COLORS.border },
-  changeBtn: { marginTop: 8, alignSelf: 'center', paddingHorizontal: 16, paddingVertical: 6, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.borderMed, backgroundColor: COLORS.white },
-  changeBtnText: { fontSize: 12, fontWeight: '500', color: COLORS.ink2 },
-  bgOptionsCard: { marginHorizontal: SPACING.xl, marginBottom: SPACING.md, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, borderWidth: 0.5, borderColor: COLORS.border, padding: SPACING.lg },
-  bgOptionsTitle: { fontSize: 16, fontWeight: '600', color: COLORS.ink, marginBottom: 4 },
-  bgOptionsSub: { fontSize: 12, color: COLORS.ink2, marginBottom: 14 },
-  bgOptionsRow: { flexDirection: 'row', gap: 10 },
-  bgOptionBtn: { flex: 1, backgroundColor: COLORS.ink, borderRadius: RADIUS.md, padding: 12, alignItems: 'center', gap: 4 },
-  bgOptionBtnAlt: { backgroundColor: COLORS.cream, borderWidth: 0.5, borderColor: COLORS.borderMed },
-  bgOptionIcon: { fontSize: 22 },
-  bgOptionLabel: { fontSize: 13, fontWeight: '600', color: COLORS.cream },
-  bgOptionSub: { fontSize: 10, color: 'rgba(247,244,239,0.7)' },
-  banner: { marginHorizontal: SPACING.xl, marginBottom: SPACING.md, backgroundColor: COLORS.sageLt, borderRadius: RADIUS.md, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  bannerText: { fontSize: 12, fontWeight: '500', color: COLORS.sageDk, flex: 1 },
-  form: { paddingHorizontal: SPACING.xl },
-  fieldBlock: { marginBottom: 14 },
-  fieldLabel: { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 },
-  input: { backgroundColor: COLORS.white, borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.md, paddingHorizontal: 14, height: 42, fontSize: 14, color: COLORS.ink },
-  seasonChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIUS.full, marginRight: 8, borderWidth: 2, borderColor: 'transparent' },
+  container:          { flex: 1, backgroundColor: COLORS.cream },
+  topBar:             { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.xl, paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
+  iconBtn:            { width: 38, height: 38, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.border, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center' },
+  topTitle:           { fontSize: 17, fontWeight: '600', color: COLORS.ink },
+  saveTopBtn:         { backgroundColor: COLORS.ink, borderRadius: RADIUS.full, paddingHorizontal: 18, paddingVertical: 8 },
+  saveTopBtnText:     { fontSize: 14, fontWeight: '600', color: COLORS.cream },
+  analyzing:          { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 40 },
+  analyzingTitle:     { fontSize: 18, fontWeight: '600', color: COLORS.ink },
+  analyzingSub:       { fontSize: 13, color: COLORS.ink2, textAlign: 'center' },
+  photoStep:          { flex: 1, alignItems: 'center', paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg },
+  photoPlaceholder:   { width: '100%', aspectRatio: 3/4, borderRadius: RADIUS.xl, backgroundColor: COLORS.white, borderWidth: 0.5, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  photoPlaceholderText: { fontSize: 14, color: COLORS.ink3 },
+  previewImg:         { width: '100%', aspectRatio: 3/4, borderRadius: RADIUS.xl },
+  photoActions:       { flexDirection: 'row', gap: 12, marginTop: SPACING.lg, width: '100%' },
+  photoBtn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, borderWidth: 0.5, borderColor: COLORS.borderMed, paddingVertical: 13 },
+  photoBtnText:       { fontSize: 14, fontWeight: '500', color: COLORS.ink },
+  skipBtn:            { marginTop: SPACING.md },
+  skipBtnText:        { fontSize: 13, color: COLORS.ink3 },
+  formScroll:         { paddingBottom: 60 },
+  formImgContainer:   { marginHorizontal: SPACING.xl, borderRadius: RADIUS.xl, overflow: 'hidden', aspectRatio: 3/4, marginBottom: SPACING.lg },
+  formImg:            { width: '100%', height: '100%' },
+  form:               { paddingHorizontal: SPACING.xl },
+  fieldBlock:         { marginBottom: 14 },
+  fieldLabel:         { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 },
+  input:              { backgroundColor: COLORS.white, borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.md, paddingHorizontal: 14, height: 42, fontSize: 14, color: COLORS.ink },
+  seasonChip:         { paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIUS.full, marginRight: 8, borderWidth: 2, borderColor: 'transparent' },
   seasonChipSelected: { borderColor: COLORS.ink },
-  seasonChipText: { fontWeight: '500', fontSize: 12 },
-  catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
-  catChip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.borderMed, backgroundColor: COLORS.white },
-  catChipSelected: { backgroundColor: COLORS.ink, borderColor: COLORS.ink },
-  catChipText: { fontWeight: '500', fontSize: 12, color: COLORS.ink2 },
-  catChipTextSelected: { color: COLORS.cream },
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: SPACING.xl, paddingBottom: 32, backgroundColor: COLORS.cream, borderTopWidth: 0.5, borderTopColor: COLORS.border },
-  saveBtn: { backgroundColor: COLORS.ink, borderRadius: RADIUS.lg, paddingVertical: 14, alignItems: 'center', justifyContent: 'center' },
-  saveBtnText: { fontWeight: '500', fontSize: 15, color: COLORS.cream },
+  seasonChipText:     { fontWeight: '500', fontSize: 12 },
+  catGrid:            { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
+  catChip:            { paddingHorizontal: 14, paddingVertical: 6, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.borderMed, backgroundColor: COLORS.white },
+  catChipSelected:    { backgroundColor: COLORS.ink, borderColor: COLORS.ink },
+  catChipText:        { fontWeight: '500', fontSize: 12, color: COLORS.ink2 },
+  catChipTextSelected:{ color: COLORS.cream },
 });
