@@ -23,50 +23,29 @@ async function analyzeWithClaude(imageUri) {
     });
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
-            { type: 'text', text: `Analyze this clothing item. Return ONLY a JSON object, no extra text:
-{
-  "brand": "brand name if visible, else empty string",
-  "name": "item name e.g. Merino ribbed turtleneck",
-  "description": "one sentence style and fabric description",
-  "color": "primary color name",
-  "color_season": "one of: Deep Winter, True Winter, Bright Winter, Soft Summer, True Summer, Light Summer, Deep Autumn, True Autumn, Soft Autumn, Light Spring, True Spring, Bright Spring",
-  "category": "one of: Tops, Bottoms, Outerwear, Shoes, Dresses, Accessories, Bags, Other",
-  "original_price": 0
-}` },
-          ],
-        }],
+        model: 'claude-sonnet-4-6', max_tokens: 1024,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+          { type: 'text', text: `Analyze this clothing item. Return ONLY JSON:\n{"brand":"","name":"","description":"","color":"","color_season":"Deep Winter|True Winter|Bright Winter|Soft Summer|True Summer|Light Summer|Deep Autumn|True Autumn|Soft Autumn|Light Spring|True Spring|Bright Spring","category":"Tops|Bottoms|Outerwear|Shoes|Dresses|Accessories|Bags|Other","original_price":0}` },
+        ]}],
       }),
     });
     const data = await res.json();
-    const text = data.content?.[0]?.text || '{}';
-    return JSON.parse(text.replace(/```json|```/g, '').trim());
-  } catch (e) {
-    console.error('Claude analysis failed:', e);
-    return null;
-  }
+    return JSON.parse((data.content?.[0]?.text || '{}').replace(/```json|```/g, '').trim());
+  } catch (e) { return null; }
 }
 
 export default function ItemDetailScreen({ itemId, navigate }) {
-  const [item, setItem]           = useState(null);
-  const [settings, setSettings]   = useState(null);
+  const [item, setItem]             = useState(null);
+  const [settings, setSettings]     = useState(null);
   const [justLogged, setJustLogged] = useState(false);
-  const [editing, setEditing]     = useState(false);
-  const [form, setForm]           = useState({});
-  const [imageUri, setImageUri]   = useState(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [saving, setSaving]       = useState(false);
+  const [editing, setEditing]       = useState(false);
+  const [form, setForm]             = useState({});
+  const [imageUri, setImageUri]     = useState(null);
+  const [analyzing, setAnalyzing]   = useState(false);
+  const [saving, setSaving]         = useState(false);
 
   useEffect(() => { load(); }, [itemId]);
 
@@ -78,16 +57,11 @@ export default function ItemDetailScreen({ itemId, navigate }) {
       const customVals = {};
       (s.customFields || []).forEach(f => { customVals[f.key] = loaded[f.key] || ''; });
       setForm({
-        brand: loaded.brand || '',
-        name: loaded.name || '',
-        description: loaded.description || '',
-        color: loaded.color || '',
-        color_season: loaded.color_season || '',
-        category: loaded.category || '',
+        brand: loaded.brand || '', name: loaded.name || '',
+        description: loaded.description || '', color: loaded.color || '',
+        color_season: loaded.color_season || '', category: loaded.category || '',
         original_price: loaded.original_price ? String(loaded.original_price) : '',
-        note1: loaded.note1 || '',
-        note2: loaded.note2 || '',
-        note3: loaded.note3 || '',
+        note1: loaded.note1 || '', note2: loaded.note2 || '', note3: loaded.note3 || '',
         ...customVals,
       });
       setImageUri(loaded.image_uri || null);
@@ -97,19 +71,19 @@ export default function ItemDetailScreen({ itemId, navigate }) {
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
 
   const handleWear = async () => {
-    await logWear(item.id);
-    setJustLogged(true);
-    await load();
+    await logWear(item.id); setJustLogged(true); await load();
     setTimeout(() => setJustLogged(false), 2000);
+  };
+
+  const handleLaundry = async () => {
+    await updateItem(item.id, { in_laundry: !item.in_laundry });
+    await load();
   };
 
   const handleDelete = () => {
     Alert.alert('Remove item', 'Remove "' + item.name + '" from your closet?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: async () => {
-        await deleteItem(item.id);
-        navigate('Closet');
-      }},
+      { text: 'Remove', style: 'destructive', onPress: async () => { await deleteItem(item.id); navigate('Closet'); } },
     ]);
   };
 
@@ -126,8 +100,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
         result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, allowsEditing: true, aspect: [3, 4] });
       }
       if (!result.canceled) {
-        const uri = result.assets[0].uri;
-        setImageUri(uri);
+        const uri = result.assets[0].uri; setImageUri(uri);
         Alert.alert('Re-run analysis?', 'Run Claude AI on the new photo?', [
           { text: 'No thanks', style: 'cancel' },
           { text: 'Yes, analyze', onPress: () => runClaudeAnalysis(uri) },
@@ -138,8 +111,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
 
   const runClaudeAnalysis = async (uri) => {
     if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'YOUR_ANTHROPIC_API_KEY') {
-      Alert.alert('API key needed', 'Add your Anthropic API key to ItemDetailScreen.js.');
-      return;
+      Alert.alert('API key needed', 'Add your Anthropic API key to ItemDetailScreen.js.'); return;
     }
     setAnalyzing(true);
     try {
@@ -147,12 +119,9 @@ export default function ItemDetailScreen({ itemId, navigate }) {
       if (result) {
         setForm(prev => ({
           ...prev,
-          brand: result.brand || prev.brand,
-          name: result.name || prev.name,
-          description: result.description || prev.description,
-          color: result.color || prev.color,
-          color_season: result.color_season || prev.color_season,
-          category: result.category || prev.category,
+          brand: result.brand || prev.brand, name: result.name || prev.name,
+          description: result.description || prev.description, color: result.color || prev.color,
+          color_season: result.color_season || prev.color_season, category: result.category || prev.category,
           original_price: result.original_price ? String(result.original_price) : prev.original_price,
         }));
         Alert.alert('Done!', 'Fields updated — review and save.');
@@ -161,34 +130,27 @@ export default function ItemDetailScreen({ itemId, navigate }) {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) { Alert.alert('Name required', 'Please enter an item name.'); return; }
+    if (!form.name.trim()) { Alert.alert('Name required'); return; }
     setSaving(true);
     try {
-      await updateItem(item.id, {
-        ...form,
-        original_price: form.original_price ? parseFloat(form.original_price) : null,
-        image_uri: imageUri,
-      });
-      await load();
-      setEditing(false);
-    } catch (e) { Alert.alert('Error', 'Could not save changes.'); }
+      await updateItem(item.id, { ...form, original_price: form.original_price ? parseFloat(form.original_price) : null, image_uri: imageUri });
+      await load(); setEditing(false);
+    } catch { Alert.alert('Error', 'Could not save changes.'); }
     finally { setSaving(false); }
   };
 
   if (!item || !settings) return <View style={styles.container} />;
 
   const visibleSeasons = Object.keys(SEASONS).filter(s => !(settings.hiddenSeasons || []).includes(s));
-  const season = SEASONS[item.color_season];
-  const currency = settings.currency || '$';
-  const cpwGoal = settings.cpwGoal;
-  const cpwValue = item.original_price && item.times_worn > 0
-    ? item.original_price / item.times_worn : null;
+  const season    = SEASONS[item.color_season];
+  const currency  = settings.currency || '$';
+  const cpwGoal   = settings.cpwGoal;
+  const cpwValue  = item.original_price && item.times_worn > 0 ? item.original_price / item.times_worn : null;
   const costPerWear = cpwValue ? currency + cpwValue.toFixed(2) : '—';
-  const cpwOver = cpwGoal && cpwValue && cpwValue > cpwGoal;
-
+  const cpwOver   = cpwGoal && cpwValue && cpwValue > cpwGoal;
   const customFields = (settings.customFields || []).filter(f => f.label);
 
-  // ── EDIT MODE ────────────────────────────────────────────────
+  // ── EDIT MODE ─────────────────────────────────────────────
   if (editing) {
     return (
       <SafeAreaView style={styles.container}>
@@ -198,9 +160,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
           </TouchableOpacity>
           <Text style={styles.editTitle}>Edit item</Text>
           <TouchableOpacity onPress={handleSave} style={[styles.saveTopBtn, saving && { opacity: 0.6 }]} disabled={saving}>
-            {saving
-              ? <ActivityIndicator size="small" color={COLORS.cream} />
-              : <Text style={styles.saveTopBtnText}>Save</Text>}
+            {saving ? <ActivityIndicator size="small" color={COLORS.cream} /> : <Text style={styles.saveTopBtnText}>Save</Text>}
           </TouchableOpacity>
         </View>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.editScroll}>
@@ -211,24 +171,17 @@ export default function ItemDetailScreen({ itemId, navigate }) {
           </View>
           <View style={styles.photoRow}>
             <TouchableOpacity style={styles.photoBtn} onPress={() => handlePickImage(true)}>
-              <Feather name="camera" size={16} color={COLORS.ink2} />
-              <Text style={styles.photoBtnText}>Retake photo</Text>
+              <Feather name="camera" size={16} color={COLORS.ink2} /><Text style={styles.photoBtnText}>Retake</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.photoBtn} onPress={() => handlePickImage(false)}>
-              <Feather name="image" size={16} color={COLORS.ink2} />
-              <Text style={styles.photoBtnText}>Choose photo</Text>
+              <Feather name="image" size={16} color={COLORS.ink2} /><Text style={styles.photoBtnText}>Choose photo</Text>
             </TouchableOpacity>
           </View>
-          {analyzing && (
-            <View style={styles.statusBanner}>
-              <ActivityIndicator size="small" color={COLORS.sage} />
-              <Text style={styles.statusText}>Claude is analyzing your photo...</Text>
-            </View>
-          )}
+          {analyzing && <View style={styles.statusBanner}><ActivityIndicator size="small" color={COLORS.sage} /><Text style={styles.statusText}>Analyzing...</Text></View>}
           {imageUri && !analyzing && (
             <TouchableOpacity style={styles.reanalyzeBtn} onPress={() => runClaudeAnalysis(imageUri)}>
               <Feather name="zap" size={14} color={COLORS.purple} />
-              <Text style={styles.reanalyzeBtnText}>Re-run Claude analysis on current photo</Text>
+              <Text style={styles.reanalyzeBtnText}>Re-run Claude analysis</Text>
             </TouchableOpacity>
           )}
           <View style={styles.form}>
@@ -269,9 +222,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
             {customFields.length > 0 && (
               <>
                 <Text style={[styles.fieldLabel, { marginBottom: 8, marginTop: 20 }]}>Custom fields</Text>
-                {customFields.map(f => (
-                  <Field key={f.key} label={f.label} value={form[f.key] || ''} onChangeText={v => set(f.key, v)} placeholder={f.label} />
-                ))}
+                {customFields.map(f => <Field key={f.key} label={f.label} value={form[f.key] || ''} onChangeText={v => set(f.key, v)} placeholder={f.label} />)}
               </>
             )}
           </View>
@@ -280,7 +231,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
     );
   }
 
-  // ── VIEW MODE ────────────────────────────────────────────────
+  // ── VIEW MODE ─────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.topBar}>
@@ -288,6 +239,10 @@ export default function ItemDetailScreen({ itemId, navigate }) {
           <Feather name="arrow-left" size={20} color={COLORS.ink} />
         </TouchableOpacity>
         <View style={styles.topBarRight}>
+          <TouchableOpacity onPress={handleLaundry}
+            style={[styles.iconBtn, item.in_laundry && { backgroundColor: COLORS.goldLt, borderColor: COLORS.gold }]}>
+            <Feather name="wind" size={17} color={item.in_laundry ? COLORS.gold : COLORS.ink2} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => setEditing(true)} style={styles.iconBtn}>
             <Feather name="edit-2" size={17} color={COLORS.ink} />
           </TouchableOpacity>
@@ -296,6 +251,15 @@ export default function ItemDetailScreen({ itemId, navigate }) {
           </TouchableOpacity>
         </View>
       </View>
+
+      {item.in_laundry && (
+        <View style={styles.laundryBanner}>
+          <Feather name="wind" size={14} color={COLORS.gold} />
+          <Text style={styles.laundryBannerText}>In the laundry — hidden from outfit builder</Text>
+          <TouchableOpacity onPress={handleLaundry}><Text style={styles.laundryBannerAction}>Mark clean</Text></TouchableOpacity>
+        </View>
+      )}
+
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <View style={styles.imgContainer}>
           {item.image_uri
@@ -335,17 +299,13 @@ export default function ItemDetailScreen({ itemId, navigate }) {
           {customFields.filter(f => item[f.key]).length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>More details</Text>
-              {customFields.filter(f => item[f.key]).map(f => (
-                <AttrRow key={f.key} label={f.label} value={item[f.key]} />
-              ))}
+              {customFields.filter(f => item[f.key]).map(f => <AttrRow key={f.key} label={f.label} value={item[f.key]} />)}
             </View>
           )}
         </View>
       </ScrollView>
       <View style={styles.footer}>
-        <TouchableOpacity
-          style={[styles.wearBtn, justLogged && { backgroundColor: COLORS.sage }]}
-          onPress={handleWear}>
+        <TouchableOpacity style={[styles.wearBtn, justLogged && { backgroundColor: COLORS.sage }]} onPress={handleWear}>
           <Feather name={justLogged ? 'check' : 'sun'} size={18} color={COLORS.cream} />
           <Text style={styles.wearBtnText}>{justLogged ? 'Logged!' : 'Log wear today'}</Text>
         </TouchableOpacity>
@@ -368,12 +328,10 @@ function Field({ label, value, onChangeText, placeholder, multiline, keyboardTyp
   return (
     <View style={styles.fieldBlock}>
       {label ? <Text style={styles.fieldLabel}>{label}</Text> : null}
-      <TextInput
-        style={[styles.input, multiline && { height: 72, textAlignVertical: 'top', paddingTop: 10 }]}
+      <TextInput style={[styles.input, multiline && { height: 72, textAlignVertical: 'top', paddingTop: 10 }]}
         value={value} onChangeText={onChangeText} placeholder={placeholder}
         placeholderTextColor={COLORS.ink3} multiline={multiline}
-        keyboardType={keyboardType || 'default'} returnKeyType="done"
-      />
+        keyboardType={keyboardType || 'default'} returnKeyType="done" />
     </View>
   );
 }
@@ -386,6 +344,9 @@ const styles = StyleSheet.create({
   editTitle:          { fontSize: 16, fontWeight: '600', color: COLORS.ink },
   saveTopBtn:         { backgroundColor: COLORS.ink, borderRadius: RADIUS.full, paddingHorizontal: 18, paddingVertical: 8 },
   saveTopBtnText:     { fontSize: 14, fontWeight: '600', color: COLORS.cream },
+  laundryBanner:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.goldLt, paddingHorizontal: SPACING.xl, paddingVertical: 10 },
+  laundryBannerText:  { flex: 1, fontSize: 12, fontWeight: '500', color: COLORS.gold },
+  laundryBannerAction:{ fontSize: 12, fontWeight: '600', color: COLORS.ink, textDecorationLine: 'underline' },
   scroll:             { paddingBottom: 120 },
   imgContainer:       { marginHorizontal: SPACING.xl, borderRadius: RADIUS.xl, overflow: 'hidden', backgroundColor: COLORS.white, aspectRatio: 1, borderWidth: 0.5, borderColor: COLORS.border },
   imgFull:            { width: '100%', height: '100%' },
@@ -416,7 +377,7 @@ const styles = StyleSheet.create({
   photoBtn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: COLORS.white, borderRadius: RADIUS.md, borderWidth: 0.5, borderColor: COLORS.borderMed, paddingVertical: 10 },
   photoBtnText:       { fontSize: 13, fontWeight: '500', color: COLORS.ink2 },
   statusBanner:       { marginHorizontal: SPACING.xl, marginBottom: SPACING.md, backgroundColor: COLORS.sageLt, borderRadius: RADIUS.md, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  statusText:         { fontSize: 12, fontWeight: '500', color: COLORS.sageDk, flex: 1 },
+  statusText:         { fontSize: 12, fontWeight: '500', color: COLORS.sageDk },
   reanalyzeBtn:       { marginHorizontal: SPACING.xl, marginBottom: SPACING.md, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.purpleLt, borderRadius: RADIUS.md, padding: 12 },
   reanalyzeBtnText:   { fontSize: 13, fontWeight: '500', color: COLORS.purple },
   form:               { paddingHorizontal: SPACING.xl },

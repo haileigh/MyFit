@@ -2,19 +2,20 @@ import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
-import ClosetScreen from './ClosetScreen';
-import ItemDetailScreen from './ItemDetailScreen';
-import AddItemScreen from './AddItemScreen';
-import OutfitScreen from './OutfitScreen';
-import StatsScreen from './StatsScreen';
-import SettingsScreen from './SettingsScreen';
+import ClosetScreen      from './ClosetScreen';
+import ItemDetailScreen  from './ItemDetailScreen';
+import AddItemScreen     from './AddItemScreen';
+import OutfitScreen      from './OutfitScreen';
+import StatsScreen       from './StatsScreen';
+import SettingsScreen    from './SettingsScreen';
+import WishlistScreen    from './WishlistScreen';
 
 import { initDB } from './database';
 import { COLORS } from './theme';
 
 export default function App() {
-  const [dbReady, setDbReady] = useState(false);
-  const [screen, setScreen]   = useState('Closet');
+  const [dbReady, setDbReady]   = useState(false);
+  const [screen, setScreen]     = useState('Closet');
   const [detailId, setDetailId] = useState(null);
 
   useEffect(() => {
@@ -42,6 +43,8 @@ export default function App() {
     if (screen === 'Outfit')     return <OutfitScreen navigate={navigate} />;
     if (screen === 'Stats')      return <StatsScreen navigate={navigate} />;
     if (screen === 'Settings')   return <SettingsScreen navigate={navigate} />;
+    if (screen === 'Wishlist')   return <WishlistScreen navigate={navigate} />;
+    if (screen === 'Laundry')    return <ClosetScreen navigate={navigate} laundryMode />;
     return <ClosetScreen navigate={navigate} />;
   };
 
@@ -53,10 +56,10 @@ export default function App() {
     { name: 'Settings', icon: 'settings' },
   ];
 
-  const activeTab = ['ItemDetail','Closet'].includes(screen) ? 'Closet'
+  const activeTab = ['ItemDetail','Closet','Laundry'].includes(screen) ? 'Closet'
     : screen === 'Add'      ? 'Add'
     : screen === 'Outfit'   ? 'Outfit'
-    : screen === 'Stats'    ? 'Stats'
+    : ['Stats','Wishlist'].includes(screen) ? 'Stats'
     : screen === 'Settings' ? 'Settings'
     : 'Closet';
 
@@ -67,8 +70,7 @@ export default function App() {
         {tabs.map(tab => (
           <View key={tab.name} style={styles.tabItem}>
             <Feather
-              name={tab.icon}
-              size={22}
+              name={tab.icon} size={22}
               color={activeTab === tab.name ? COLORS.ink : COLORS.ink3}
               onPress={() => navigate(tab.name)}
             />
