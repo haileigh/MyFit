@@ -5,18 +5,25 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { getSettings, saveSettings } from './database';
+import { getApiKey, saveApiKey, deleteApiKey } from './api';
 import { COLORS, SPACING, RADIUS, SEASONS } from './theme';
 
 export default function SettingsScreen({ navigate }) {
-  const [settings, setSettings] = useState(null);
-  const [dirty, setDirty]       = useState(false);
+  const [settings, setSettings]     = useState(null);
+  const [dirty, setDirty]           = useState(false);
+  const [apiKey, setApiKey]         = useState('');
+  const [apiKeyStored, setApiKeyStored] = useState(false);
+  const [showKey, setShowKey]       = useState(false);
+  const [savingKey, setSavingKey]   = useState(false);
 
   useEffect(() => { load(); }, []);
 
   const load = async () => {
-    const s = await getSettings();
+    const [s, storedKey] = await Promise.all([getSettings(), getApiKey()]);
     setSettings(s);
     setDirty(false);
+    setApiKeyStored(!!storedKey);
+    // Don't pre-fill the field — user should re-enter to update
   };
 
   const update = useCallback((patch) => {
@@ -30,13 +37,38 @@ export default function SettingsScreen({ navigate }) {
     Alert.alert('Saved', 'Your settings have been saved.');
   };
 
-  // ── Custom fields ──────────────────────────────────────────
+  const handleSaveApiKey = async () => {
+    const trimmed = apiKey.trim();
+    if (!trimmed) { Alert.alert('No key entered', 'Paste your Anthropic API key above.'); return; }
+    setSavingKey(true);
+    const ok = await saveApiKey(trimmed);
+    setSavingKey(false);
+    if (ok) {
+      setApiKeyStored(true);
+      setApiKey('');
+      setShowKey(false);
+      Alert.alert('Key saved', 'Your Anthropic API key has been saved securely to this device.');
+    } else {
+      Alert.alert('Error', 'Could not save the key. Please try again.');
+    }
+  };
+
+  const handleRemoveApiKey = () => {
+    Alert.alert('Remove API key', 'Remove your Anthropic API key from this device?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: async () => {
+        await deleteApiKey();
+        setApiKeyStored(false);
+        setApiKey('');
+        Alert.alert('Removed', 'Your API key has been deleted from this device.');
+      }},
+    ]);
+  };
+
+  // Custom fields
   const addCustomField = () => {
     const fields = settings.customFields || [];
-    if (fields.length >= 6) {
-      Alert.alert('Maximum reached', 'You can have up to 6 custom fields.');
-      return;
-    }
+    if (fields.length >= 6) { Alert.alert('Maximum reached', 'You can have up to 6 custom fields.'); return; }
     update({ customFields: [...fields, { key: 'custom_' + Date.now(), label: '' }] });
   };
 
@@ -57,11 +89,10 @@ export default function SettingsScreen({ navigate }) {
     update({ customFields: fields });
   };
 
-  // ── Season toggles ─────────────────────────────────────────
+  // Season toggles
   const toggleSeason = (seasonName) => {
     const hidden = new Set(settings.hiddenSeasons || []);
-    if (hidden.has(seasonName)) hidden.delete(seasonName);
-    else hidden.add(seasonName);
+    hidden.has(seasonName) ? hidden.delete(seasonName) : hidden.add(seasonName);
     update({ hiddenSeasons: [...hidden] });
   };
 
@@ -86,7 +117,7 @@ export default function SettingsScreen({ navigate }) {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
 
-        {/* ── PREFERENCES ──────────────────────────────────── */}
+        {/* PREFERENCES */}
         <SectionHeader label="Preferences" />
         <View style={styles.card}>
           <View style={styles.row}>
@@ -122,7 +153,55 @@ export default function SettingsScreen({ navigate }) {
           </View>
         </View>
 
-        {/* ── CUSTOM FIELDS ────────────────────────────────── */}
+        {/* ANTHROPIC API KEY */}
+        <SectionHeader
+          label="AI auto-fill"
+          sub="Your key is stored securely on this device only"
+        />
+        <View style={styles.card}>
+          {apiKeyStored ? (
+            <View style={styles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowLabel}>API key saved</Text>
+                <Text style={styles.rowSub}>Claude will auto-fill items when you add a photo</Text>
+              </View>
+              <TouchableOpacity onPress={handleRemoveApiKey} style={styles.removeKeyBtn}>
+                <Feather name="trash-2" size={15} color={COLORS.terra} />
+                <Text style={styles.removeKeyText}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={[styles.row, { borderBottomWidth: 0, flexDirection: 'column', alignItems: 'stretch', gap: 10 }]}>
+              <Text style={styles.rowLabel}>Anthropic API key</Text>
+              <Text style={styles.rowSub}>
+                Get your key at console.anthropic.com. It is stored only on this device and never shared.
+              </Text>
+              <View style={styles.keyInputRow}>
+                <TextInput
+                  style={styles.keyInput}
+                  value={apiKey}
+                  onChangeText={setApiKey}
+                  placeholder="sk-ant-..."
+                  placeholderTextColor={COLORS.ink3}
+                  secureTextEntry={!showKey}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity onPress={() => setShowKey(v => !v)} style={styles.eyeBtn}>
+                  <Feather name={showKey ? 'eye-off' : 'eye'} size={16} color={COLORS.ink3} />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={[styles.saveKeyBtn, savingKey && { opacity: 0.6 }]}
+                onPress={handleSaveApiKey}
+                disabled={savingKey}>
+                <Text style={styles.saveKeyBtnText}>{savingKey ? 'Saving…' : 'Save key'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* CUSTOM FIELDS */}
         <SectionHeader label="Custom fields" sub="Up to 6 fields shown on every item" />
         <View style={styles.card}>
           {(settings.customFields || []).length === 0 && (
@@ -152,14 +231,11 @@ export default function SettingsScreen({ navigate }) {
           </TouchableOpacity>
         </View>
 
-        {/* ── COLOR SEASONS ────────────────────────────────── */}
+        {/* COLOR SEASONS */}
         <SectionHeader label="Color seasons" sub="Toggle which seasons appear in the app" />
         <View style={styles.card}>
           {Object.entries(SEASONS).map(([name, data], idx, arr) => (
-            <View key={name} style={[
-              styles.row,
-              idx === arr.length - 1 && { borderBottomWidth: 0 },
-            ]}>
+            <View key={name} style={[styles.row, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
               <View style={[styles.seasonDot, { backgroundColor: data.bg }]}>
                 <Text style={[styles.seasonDotText, { color: data.text }]}>{data.short}</Text>
               </View>
@@ -174,7 +250,7 @@ export default function SettingsScreen({ navigate }) {
           ))}
         </View>
 
-        {/* ── ABOUT ────────────────────────────────────────── */}
+        {/* ABOUT */}
         <SectionHeader label="About" />
         <View style={styles.card}>
           <View style={[styles.row, { borderBottomWidth: 0 }]}>
@@ -218,6 +294,13 @@ const styles = StyleSheet.create({
   goalInputWrap:  { flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.sm, backgroundColor: COLORS.cream, paddingHorizontal: 8, height: 36 },
   goalCurrency:   { fontSize: 14, color: COLORS.ink2, marginRight: 2 },
   goalInput:      { width: 60, fontSize: 14, color: COLORS.ink },
+  keyInputRow:    { flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.md, backgroundColor: COLORS.cream, paddingHorizontal: 12, height: 44 },
+  keyInput:       { flex: 1, fontSize: 13, color: COLORS.ink },
+  eyeBtn:         { padding: 4 },
+  saveKeyBtn:     { backgroundColor: COLORS.ink, borderRadius: RADIUS.md, paddingVertical: 12, alignItems: 'center' },
+  saveKeyBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.cream },
+  removeKeyBtn:   { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: RADIUS.sm, borderWidth: 0.5, borderColor: COLORS.terra, backgroundColor: COLORS.terraLt },
+  removeKeyText:  { fontSize: 12, fontWeight: '500', color: COLORS.terra },
   emptyNote:      { fontSize: 13, color: COLORS.ink3, padding: SPACING.md, textAlign: 'center' },
   fieldInput:     { flex: 1, fontSize: 14, color: COLORS.ink, paddingVertical: 4 },
   removeBtn:      { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },

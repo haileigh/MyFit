@@ -36,4 +36,9 @@ export const SEASONS = {
   'True Summer':   { bg: '#D8E8F0', text: '#1E5A7A', short: 'T2' },
 };
 
-export const CATEGORIES = ['Tops','Bottoms','Outerwear','Shoes','Dresses','Accessories','Bags','Other'];
+export const CATEGORIES = [
+  'Tops', 'Bottoms', 'Skirts', 'Outerwear', 'Shoes',
+  'Dresses', 'Accessories', 'Bags', 'Shorts', 'Pajamas', 'Robes', 'Other',
+];
+
+export const FIT_OPTIONS = ['Loose', 'Just right', 'Tight', 'I should really get rid of it'];
