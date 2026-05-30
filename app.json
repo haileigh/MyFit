@@ -4,10 +4,20 @@
     "slug": "myfit",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./icon.png",
+    "splash": {
+      "image": "./icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FF6B6B"
+    },
     "sdkVersion": "52.0.0",
     "android": {
       "package": "com.yourname.myfit",
       "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./icon.png",
+        "backgroundColor": "#FF6B6B"
+      },
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -17,9 +27,7 @@
     "extra": {
       "eas": {
         "projectId": "16d982ba-cf61-488b-ba6c-95956a5a929a"
-      },
-      "anthropicKey": "YOUR_ANTHROPIC_API_KEY",
-      "removebgKey": "YOUR_REMOVEBG_API_KEY"
+      }
     }
   }
 }
