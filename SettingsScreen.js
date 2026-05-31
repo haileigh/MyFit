@@ -250,6 +250,19 @@ export default function SettingsScreen({ navigate }) {
           ))}
         </View>
 
+        {/* STATS */}
+        <SectionHeader label="Wardrobe" />
+        <View style={styles.card}>
+          <TouchableOpacity style={[styles.row, { borderBottomWidth: 0 }]} onPress={() => navigate('Stats')}>
+            <Feather name="bar-chart-2" size={18} color={COLORS.ink2} style={{ marginRight: 12 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>Stats & insights</Text>
+              <Text style={styles.rowSub}>Wear counts, cost per wear, and more</Text>
+            </View>
+            <Feather name="chevron-right" size={16} color={COLORS.ink3} />
+          </TouchableOpacity>
+        </View>
+
         {/* ABOUT */}
         <SectionHeader label="About" />
         <View style={styles.card}>

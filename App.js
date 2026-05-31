@@ -9,6 +9,7 @@ import OutfitScreen      from './OutfitScreen';
 import StatsScreen       from './StatsScreen';
 import SettingsScreen    from './SettingsScreen';
 import WishlistScreen    from './WishlistScreen';
+import FavoritesScreen   from './FavoritesScreen';
 
 import { initDB } from './database';
 import { COLORS } from './theme';
@@ -38,47 +39,57 @@ export default function App() {
   };
 
   const renderScreen = () => {
-    if (screen === 'ItemDetail') return <ItemDetailScreen itemId={detailId} navigate={navigate} />;
-    if (screen === 'Add')        return <AddItemScreen navigate={navigate} />;
-    if (screen === 'Outfit')     return <OutfitScreen navigate={navigate} />;
-    if (screen === 'Stats')      return <StatsScreen navigate={navigate} />;
-    if (screen === 'Settings')   return <SettingsScreen navigate={navigate} />;
-    if (screen === 'Wishlist')   return <WishlistScreen navigate={navigate} />;
-    if (screen === 'Laundry')    return <ClosetScreen navigate={navigate} laundryMode />;
+    if (screen === 'ItemDetail')  return <ItemDetailScreen itemId={detailId} navigate={navigate} />;
+    if (screen === 'Add')         return <AddItemScreen navigate={navigate} />;
+    if (screen === 'Outfit')      return <OutfitScreen navigate={navigate} />;
+    if (screen === 'Favorites')   return <FavoritesScreen navigate={navigate} />;
+    if (screen === 'Stats')       return <StatsScreen navigate={navigate} />;
+    if (screen === 'Settings')    return <SettingsScreen navigate={navigate} />;
+    if (screen === 'Wishlist')    return <WishlistScreen navigate={navigate} />;
+    if (screen === 'Laundry')     return <ClosetScreen navigate={navigate} laundryMode />;
     return <ClosetScreen navigate={navigate} />;
   };
 
+  // Tabs: Closet | Outfit | Favorites | + | Settings
   const tabs = [
-    { name: 'Closet',   icon: 'grid' },
-    { name: 'Outfit',   icon: 'layers' },
-    { name: 'Add',      icon: 'plus-circle' },
-    { name: 'Stats',    icon: 'bar-chart-2' },
-    { name: 'Settings', icon: 'settings' },
+    { name: 'Closet',    icon: 'grid' },
+    { name: 'Outfit',    icon: 'layers' },
+    { name: 'Favorites', icon: 'heart' },
+    { name: 'Add',       icon: 'plus-circle' },
+    { name: 'Settings',  icon: 'settings' },
   ];
 
-  const activeTab = ['ItemDetail','Closet','Laundry'].includes(screen) ? 'Closet'
-    : screen === 'Add'      ? 'Add'
-    : screen === 'Outfit'   ? 'Outfit'
-    : ['Stats','Wishlist'].includes(screen) ? 'Stats'
-    : screen === 'Settings' ? 'Settings'
+  const activeTab =
+    ['ItemDetail', 'Closet', 'Laundry'].includes(screen) ? 'Closet'
+    : screen === 'Outfit'    ? 'Outfit'
+    : screen === 'Favorites' ? 'Favorites'
+    : screen === 'Add'       ? 'Add'
+    : ['Settings', 'Stats', 'Wishlist'].includes(screen) ? 'Settings'
     : 'Closet';
 
   return (
     <View style={styles.container}>
       <View style={styles.screenArea}>{renderScreen()}</View>
       <View style={styles.tabBar}>
-        {tabs.map(tab => (
-          <View key={tab.name} style={styles.tabItem}>
-            <Feather
-              name={tab.icon} size={22}
-              color={activeTab === tab.name ? COLORS.ink : COLORS.ink3}
-              onPress={() => navigate(tab.name)}
-            />
-            <Text style={[styles.tabLabel, { color: activeTab === tab.name ? COLORS.ink : COLORS.ink3 }]}>
-              {tab.name}
-            </Text>
-          </View>
-        ))}
+        {tabs.map(tab => {
+          const active = activeTab === tab.name;
+          const isAdd  = tab.name === 'Add';
+          return (
+            <View key={tab.name} style={styles.tabItem}>
+              <Feather
+                name={tab.icon}
+                size={isAdd ? 26 : 22}
+                color={active ? COLORS.ink : isAdd ? COLORS.ink2 : COLORS.ink3}
+                onPress={() => navigate(tab.name)}
+              />
+              {!isAdd && (
+                <Text style={[styles.tabLabel, { color: active ? COLORS.ink : COLORS.ink3 }]}>
+                  {tab.name}
+                </Text>
+              )}
+            </View>
+          );
+        })}
       </View>
     </View>
   );

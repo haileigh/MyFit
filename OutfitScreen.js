@@ -1,26 +1,28 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  SafeAreaView, Alert, Image, Dimensions,
+  SafeAreaView, Alert, Image, Dimensions, Animated,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { getAllItems, insertOutfit, logOutfitWear } from './database';
+import { getAllItems, insertOutfit, logOutfitWear, likeOutfit } from './database';
 import { COLORS, SPACING, RADIUS, SEASONS } from './theme';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const IMG_WIDTH    = SCREEN_WIDTH - SPACING.xl * 2;
-const IMG_HEIGHT   = Math.round(IMG_WIDTH * (4 / 3));
+const CARD_GAP     = 10;
+const H_PAD        = SPACING.xl;
+// Each card is just under half the screen width
+const CARD_WIDTH   = Math.floor((SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2);
+const CARD_HEIGHT  = Math.round(CARD_WIDTH * 1.35); // portrait ratio
+// Overlap: cards in rows after the first overlap by 25% of card height
+const OVERLAP      = Math.round(CARD_HEIGHT * 0.25);
+// Horizontal nudge: alternate cards shift left/right slightly
+const H_NUDGE      = 8;
 
-// Category stack order: top of screen → bottom
+const MODES = ['Random', 'Coordinated', 'Start with item'];
+
 const STACK_ORDER = [
   'Outerwear', 'Tops', 'Dresses', 'Skirts', 'Bottoms', 'Shorts',
   'Pajamas', 'Robes', 'Shoes', 'Bags', 'Accessories', 'Other',
-];
-
-const MODES = [
-  { key: 'random',  label: 'Random' },
-  { key: 'color',   label: 'Coordinated' },
-  { key: 'anchor',  label: 'Start with item' },
 ];
 
 const SEASON_FAMILIES = {
@@ -30,9 +32,9 @@ const SEASON_FAMILIES = {
   spring: ['Light Spring', 'True Spring', 'Bright Spring'],
 };
 
-function getSeasonFamily(season) {
-  for (const [family, seasons] of Object.entries(SEASON_FAMILIES)) {
-    if (seasons.includes(season)) return family;
+function getSeasonFamily(s) {
+  for (const [f, seasons] of Object.entries(SEASON_FAMILIES)) {
+    if (seasons.includes(s)) return f;
   }
   return null;
 }
@@ -58,10 +60,8 @@ function buildOutfit(items, mode, anchorId) {
   if (!items.length) return [];
   const available = items.filter(i => !i.in_laundry);
   if (!available.length) return [];
-
   const pool = shuffleArr(available);
   const pick = arr => arr.length ? shuffleArr(arr)[0] : null;
-
   const cats = {
     top:    pool.filter(i => ['Tops', 'Dresses'].includes(i.category)),
     bottom: pool.filter(i => ['Bottoms', 'Skirts', 'Shorts'].includes(i.category)),
@@ -71,14 +71,14 @@ function buildOutfit(items, mode, anchorId) {
     acc:    pool.filter(i => i.category === 'Accessories'),
   };
 
-  if (mode === 'anchor' && anchorId) {
+  if (mode === 'Start with item' && anchorId) {
     const anchor = available.find(i => i.id === anchorId);
-    if (!anchor) return buildOutfit(available, 'random', null);
-    const rest = shuffleArr(available.filter(i => i.id !== anchorId)).slice(0, 2);
+    if (!anchor) return buildOutfit(available, 'Random', null);
+    const rest = shuffleArr(available.filter(i => i.id !== anchorId)).slice(0, 3);
     return sortByStack([anchor, ...rest].filter(Boolean));
   }
 
-  if (mode === 'color') {
+  if (mode === 'Coordinated') {
     const families = pool.map(i => getSeasonFamily(i.color_season)).filter(Boolean);
     const dominant = families.length
       ? families.sort((a, b) => families.filter(f => f === b).length - families.filter(f => f === a).length)[0]
@@ -87,7 +87,8 @@ function buildOutfit(items, mode, anchorId) {
     const top    = pick(coordPool.filter(i => ['Tops', 'Dresses'].includes(i.category))) || pick(cats.top);
     const bottom = top?.category !== 'Dresses' ? pick(coordPool.filter(i => ['Bottoms', 'Skirts', 'Shorts'].includes(i.category))) || pick(cats.bottom) : null;
     const shoes  = pick(coordPool.filter(i => i.category === 'Shoes')) || pick(cats.shoes);
-    return sortByStack([top, bottom, shoes].filter(Boolean));
+    const extra  = pick(coordPool.filter(i => i.category === 'Bags' || i.category === 'Accessories')) || null;
+    return sortByStack([top, bottom, shoes, extra].filter(Boolean));
   }
 
   // Random
@@ -100,7 +101,7 @@ function buildOutfit(items, mode, anchorId) {
     const seen   = new Set();
     return sortByStack(result.filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; }));
   }
-  return sortByStack(pool.slice(0, 3));
+  return sortByStack(pool.slice(0, 4));
 }
 
 function scoreOutfit(outfit) {
@@ -111,62 +112,127 @@ function scoreOutfit(outfit) {
   return 'Eclectic and bold — intentional contrast';
 }
 
-function OutfitItemCard({ item, onPress }) {
-  const season = SEASONS[item.color_season];
+// 2×2 overlapping collage
+function OutfitCollage({ outfit, onItemPress }) {
+  if (!outfit.length) return null;
+
+  // Pad to even number for clean 2-col layout
+  const items = outfit.slice(0, 4); // max 4
+  const rows  = [];
+  for (let i = 0; i < items.length; i += 2) rows.push(items.slice(i, i + 2));
+
   return (
-    <TouchableOpacity style={styles.itemCard} onPress={onPress} activeOpacity={0.88}>
-      <View style={[styles.itemImgWrap, { height: IMG_HEIGHT }]}>
-        {item.image_uri
-          ? <Image source={{ uri: item.image_uri }} style={styles.itemImgFull} resizeMode="cover" />
-          : (
-            <View style={styles.itemImgPlaceholder}>
-              <Feather name="image" size={56} color={COLORS.ink3} />
-            </View>
-          )}
-        {season && (
-          <View style={[styles.seasonBadge, { backgroundColor: season.bg }]}>
-            <Text style={[styles.seasonBadgeText, { color: season.text }]}>{season.short}</Text>
+    <View style={col.container}>
+      {rows.map((row, rowIdx) => {
+        const isSecondRow = rowIdx > 0;
+        return (
+          <View
+            key={rowIdx}
+            style={[
+              col.row,
+              isSecondRow && { marginTop: -OVERLAP },
+            ]}
+          >
+            {row.map((item, colIdx) => {
+              // Alternate horizontal nudge
+              const nudge = colIdx === 0 ? -H_NUDGE : H_NUDGE;
+              const isEvenRow = rowIdx % 2 === 0;
+              const finalNudge = isEvenRow ? nudge : -nudge;
+              const season = SEASONS[item.color_season];
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[
+                    col.card,
+                    {
+                      width: CARD_WIDTH,
+                      height: CARD_HEIGHT,
+                      marginHorizontal: finalNudge / 2,
+                      zIndex: rowIdx * 2 + colIdx,
+                    },
+                  ]}
+                  onPress={() => onItemPress(item)}
+                  activeOpacity={0.88}
+                >
+                  {item.image_uri
+                    ? <Image source={{ uri: item.image_uri }} style={col.img} resizeMode="cover" />
+                    : (
+                      <View style={col.placeholder}>
+                        <Feather name="image" size={32} color={COLORS.ink3} />
+                        <Text style={col.placeholderText} numberOfLines={2}>{item.name}</Text>
+                      </View>
+                    )}
+                  {season && (
+                    <View style={[col.seasonBadge, { backgroundColor: season.bg }]}>
+                      <Text style={[col.seasonText, { color: season.text }]}>{season.short}</Text>
+                    </View>
+                  )}
+                  <View style={col.nameBadge}>
+                    <Text style={col.nameText} numberOfLines={1}>{item.name}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        )}
-        <View style={styles.wornBadge}>
-          <Text style={styles.wornText}>{item.times_worn ?? 0}×</Text>
-        </View>
-      </View>
-      <View style={styles.itemInfo}>
-        {item.brand ? <Text style={styles.itemBrand}>{item.brand}</Text> : null}
-        <Text style={styles.itemName}>{item.name}</Text>
-        <Text style={styles.itemCategory}>{item.category}</Text>
-      </View>
-    </TouchableOpacity>
+        );
+      })}
+    </View>
   );
 }
 
+const col = StyleSheet.create({
+  container:       { alignItems: 'center', marginBottom: SPACING.lg },
+  row:             { flexDirection: 'row', gap: CARD_GAP, justifyContent: 'center' },
+  card:            { borderRadius: RADIUS.xl, overflow: 'hidden', backgroundColor: '#F0EDE8', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
+  img:             { width: '100%', height: '100%' },
+  placeholder:     { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12 },
+  placeholderText: { fontSize: 11, color: COLORS.ink3, textAlign: 'center' },
+  seasonBadge:     { position: 'absolute', top: 8, left: 8, borderRadius: RADIUS.full, paddingHorizontal: 6, paddingVertical: 3 },
+  seasonText:      { fontSize: 10, fontWeight: '600' },
+  nameBadge:       { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(28,26,23,0.55)', paddingHorizontal: 8, paddingVertical: 5 },
+  nameText:        { fontSize: 11, fontWeight: '500', color: COLORS.cream },
+});
+
 export default function OutfitScreen({ navigate }) {
-  const [items, setItems]       = useState([]);
-  const [mode, setMode]         = useState('random');
-  const [outfit, setOutfit]     = useState([]);
-  const [anchorId, setAnchorId] = useState(null);
-  const [justWorn, setJustWorn] = useState(false);
+  const [items, setItems]         = useState([]);
+  const [mode, setMode]           = useState('Random');
+  const [modeOpen, setModeOpen]   = useState(false);
+  const [outfit, setOutfit]       = useState([]);
+  const [anchorId, setAnchorId]   = useState(null);
+  const [justWorn, setJustWorn]   = useState(false);
+  const [justLiked, setJustLiked] = useState(false);
+  const spinAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     getAllItems().then(data => {
       setItems(data);
-      setOutfit(buildOutfit(data, 'random', null));
+      setOutfit(buildOutfit(data, 'Random', null));
     });
   }, []);
 
-  const reshuffle = () => setOutfit(buildOutfit(items, mode, anchorId));
+  const animateShuffle = () => {
+    spinAnim.setValue(0);
+    Animated.timing(spinAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+  };
 
-  const handleMode = m => {
+  const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+
+  const reshuffle = () => {
+    animateShuffle();
+    setOutfit(buildOutfit(items, mode, anchorId));
+  };
+
+  const handleMode = (m) => {
     setMode(m);
-    if (m !== 'anchor') setAnchorId(null);
+    setModeOpen(false);
+    if (m !== 'Start with item') setAnchorId(null);
     setOutfit(buildOutfit(items, m, null));
   };
 
-  const handleAnchor = id => {
+  const handleAnchor = (id) => {
     const next = anchorId === id ? null : id;
     setAnchorId(next);
-    setOutfit(buildOutfit(items, 'anchor', next));
+    setOutfit(buildOutfit(items, 'Start with item', next));
   };
 
   const handleWear = async () => {
@@ -179,10 +245,20 @@ export default function OutfitScreen({ navigate }) {
     } catch { Alert.alert('Error', 'Could not log outfit.'); }
   };
 
+  const handleLike = async () => {
+    if (!outfit.length) return;
+    try {
+      await likeOutfit('Favourite outfit', outfit.map(i => i.id));
+      setJustLiked(true);
+      setTimeout(() => setJustLiked(false), 2000);
+    } catch { Alert.alert('Error', 'Could not save outfit.'); }
+  };
+
   const laundryCount = items.filter(i => i.in_laundry).length;
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Outfit builder</Text>
@@ -196,19 +272,46 @@ export default function OutfitScreen({ navigate }) {
         )}
       </View>
 
-      <View style={styles.modeRow}>
-        {MODES.map(m => (
-          <TouchableOpacity key={m.key}
-            style={[styles.modeBtn, mode === m.key && styles.modeBtnActive]}
-            onPress={() => handleMode(m.key)}>
-            <Text style={[styles.modeBtnText, mode === m.key && styles.modeBtnTextActive]}>{m.label}</Text>
+      {/* Top controls: mode selector + shuffle */}
+      <View style={styles.controlRow}>
+        {/* Mode compact selector */}
+        <View style={styles.modeWrap}>
+          <TouchableOpacity
+            style={styles.modeSelector}
+            onPress={() => setModeOpen(v => !v)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.modeSelectorText}>{mode}</Text>
+            <Feather name={modeOpen ? 'chevron-up' : 'chevron-down'} size={13} color={COLORS.ink2} />
           </TouchableOpacity>
-        ))}
+          {modeOpen && (
+            <View style={styles.modeDropdown}>
+              {MODES.map(m => (
+                <TouchableOpacity
+                  key={m}
+                  style={[styles.modeOption, m === mode && styles.modeOptionActive]}
+                  onPress={() => handleMode(m)}
+                >
+                  {m === mode && <Feather name="check" size={12} color={COLORS.cream} style={{ marginRight: 6 }} />}
+                  <Text style={[styles.modeOptionText, m === mode && styles.modeOptionTextActive]}>{m}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Shuffle — hero button */}
+        <TouchableOpacity style={styles.shuffleBtn} onPress={reshuffle} activeOpacity={0.8}>
+          <Animated.View style={{ transform: [{ rotate: spin }] }}>
+            <Feather name="refresh-cw" size={18} color={COLORS.cream} />
+          </Animated.View>
+          <Text style={styles.shuffleBtnText}>Shuffle</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {/* Anchor selector */}
-        {mode === 'anchor' && (
+        {mode === 'Start with item' && (
           <View style={styles.anchorSection}>
             <Text style={styles.anchorLabel}>Start with</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -217,7 +320,7 @@ export default function OutfitScreen({ navigate }) {
                   <View style={[styles.anchorImg, anchorId === item.id && styles.anchorImgSelected]}>
                     {item.image_uri
                       ? <Image source={{ uri: item.image_uri }} style={styles.anchorImgFull} resizeMode="cover" />
-                      : <Feather name="image" size={18} color={COLORS.ink3} />}
+                      : <Feather name="image" size={16} color={COLORS.ink3} />}
                   </View>
                   <Text style={styles.anchorName} numberOfLines={1}>{item.name.split(' ')[0]}</Text>
                 </TouchableOpacity>
@@ -226,7 +329,7 @@ export default function OutfitScreen({ navigate }) {
           </View>
         )}
 
-        {/* Vertical outfit stack — items are the star */}
+        {/* Outfit collage */}
         {outfit.length === 0 ? (
           <View style={styles.emptyOutfit}>
             <Feather name="wind" size={40} color={COLORS.ink3} />
@@ -234,17 +337,10 @@ export default function OutfitScreen({ navigate }) {
             <Text style={styles.emptySub}>Head to the Closet tab and tap +</Text>
           </View>
         ) : (
-          <View style={styles.outfitStack}>
-            {outfit.map((item, idx) => (
-              <OutfitItemCard
-                key={String(item.id) + idx}
-                item={item}
-                onPress={() => navigate('ItemDetail', { itemId: item.id })}
-              />
-            ))}
-          </View>
+          <OutfitCollage outfit={outfit} onItemPress={item => navigate('ItemDetail', { itemId: item.id })} />
         )}
 
+        {/* Score */}
         {outfit.length > 0 && (
           <View style={styles.scoreRow}>
             <Feather name="sun" size={13} color={COLORS.sage} />
@@ -252,17 +348,25 @@ export default function OutfitScreen({ navigate }) {
           </View>
         )}
 
-        <TouchableOpacity style={styles.shuffleBtn} onPress={reshuffle}>
-          <Feather name="refresh-cw" size={16} color={COLORS.ink} />
-          <Text style={styles.shuffleBtnText}>Shuffle outfit</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.wearBtn, justWorn && { backgroundColor: COLORS.sage }]}
-          onPress={handleWear}>
-          <Feather name={justWorn ? 'check' : 'sun'} size={18} color={COLORS.cream} />
-          <Text style={styles.wearBtnText}>{justWorn ? 'Outfit logged!' : 'Wear this today'}</Text>
-        </TouchableOpacity>
+        {/* Action buttons */}
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.likeBtn, justLiked && { backgroundColor: COLORS.purpleLt, borderColor: COLORS.purple }]}
+            onPress={handleLike}
+          >
+            <Feather name="heart" size={17} color={justLiked ? COLORS.purple : COLORS.ink2} />
+            <Text style={[styles.likeBtnText, justLiked && { color: COLORS.purple }]}>
+              {justLiked ? 'Saved!' : 'Save outfit'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.wearBtn, justWorn && { backgroundColor: COLORS.sage }]}
+            onPress={handleWear}
+          >
+            <Feather name={justWorn ? 'check' : 'sun'} size={17} color={COLORS.cream} />
+            <Text style={styles.wearBtnText}>{justWorn ? 'Logged!' : 'Wear today'}</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -275,40 +379,38 @@ const styles = StyleSheet.create({
   sub:               { fontSize: 12, color: COLORS.ink2, marginTop: 2 },
   laundryNote:       { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.goldLt, borderRadius: RADIUS.full, paddingHorizontal: 10, paddingVertical: 5 },
   laundryNoteText:   { fontSize: 11, fontWeight: '500', color: COLORS.gold },
-  modeRow:           { flexDirection: 'row', gap: 8, paddingHorizontal: SPACING.xl, paddingBottom: SPACING.md },
-  modeBtn:           { flex: 1, paddingVertical: 8, borderRadius: RADIUS.md, borderWidth: 0.5, borderColor: COLORS.borderMed, alignItems: 'center' },
-  modeBtnActive:     { backgroundColor: COLORS.ink, borderColor: COLORS.ink },
-  modeBtnText:       { fontSize: 12, fontWeight: '500', color: COLORS.ink2 },
-  modeBtnTextActive: { color: COLORS.cream },
+  // Controls row
+  controlRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SPACING.xl, paddingBottom: SPACING.md },
+  modeWrap:          { flex: 1, position: 'relative', zIndex: 10 },
+  modeSelector:      { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.white, borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.md, paddingHorizontal: 12, paddingVertical: 8 },
+  modeSelectorText:  { flex: 1, fontSize: 13, fontWeight: '500', color: COLORS.ink },
+  modeDropdown:      { position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: COLORS.white, borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.md, marginTop: 4, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 5, zIndex: 20 },
+  modeOption:        { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 0.5, borderBottomColor: COLORS.border },
+  modeOptionActive:  { backgroundColor: COLORS.ink },
+  modeOptionText:    { fontSize: 13, fontWeight: '500', color: COLORS.ink },
+  modeOptionTextActive: { color: COLORS.cream },
+  shuffleBtn:        { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: COLORS.ink, borderRadius: RADIUS.md, paddingHorizontal: 18, paddingVertical: 9 },
+  shuffleBtnText:    { fontSize: 14, fontWeight: '600', color: COLORS.cream },
   scroll:            { paddingHorizontal: SPACING.xl, paddingBottom: 48 },
+  // Anchor
   anchorSection:     { marginBottom: SPACING.lg },
   anchorLabel:       { fontSize: 11, fontWeight: '500', color: COLORS.ink3, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
-  anchorChip:        { alignItems: 'center', gap: 5, marginRight: 14 },
-  anchorImg:         { width: 62, height: 62, borderRadius: RADIUS.md, backgroundColor: COLORS.white, borderWidth: 2, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  anchorChip:        { alignItems: 'center', gap: 5, marginRight: 12 },
+  anchorImg:         { width: 54, height: 54, borderRadius: RADIUS.md, backgroundColor: COLORS.white, borderWidth: 2, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   anchorImgSelected: { borderColor: COLORS.ink },
   anchorImgFull:     { width: '100%', height: '100%' },
-  anchorName:        { fontSize: 10, color: COLORS.ink2, maxWidth: 62, textAlign: 'center' },
-  // Vertical stack
-  outfitStack:       { gap: 14, marginBottom: SPACING.lg },
-  itemCard:          { backgroundColor: COLORS.white, borderRadius: RADIUS.xl, borderWidth: 0.5, borderColor: COLORS.border, overflow: 'hidden' },
-  itemImgWrap:       { width: '100%', backgroundColor: '#F0EDE8', position: 'relative' },
-  itemImgFull:       { width: '100%', height: '100%' },
-  itemImgPlaceholder:{ flex: 1, alignItems: 'center', justifyContent: 'center' },
-  seasonBadge:       { position: 'absolute', top: 12, left: 12, borderRadius: RADIUS.full, paddingHorizontal: 8, paddingVertical: 4 },
-  seasonBadgeText:   { fontSize: 11, fontWeight: '600' },
-  wornBadge:         { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(28,26,23,0.6)', borderRadius: RADIUS.full, paddingHorizontal: 8, paddingVertical: 4 },
-  wornText:          { fontSize: 11, fontWeight: '500', color: COLORS.cream },
-  itemInfo:          { padding: SPACING.md, paddingTop: 12, paddingBottom: 14 },
-  itemBrand:         { fontSize: 10, fontWeight: '500', color: COLORS.ink3, textTransform: 'uppercase', letterSpacing: 0.5 },
-  itemName:          { fontSize: 17, fontWeight: '600', color: COLORS.ink, marginTop: 2 },
-  itemCategory:      { fontSize: 12, color: COLORS.ink3, marginTop: 2 },
+  anchorName:        { fontSize: 10, color: COLORS.ink2, maxWidth: 54, textAlign: 'center' },
+  // Empty
   emptyOutfit:       { alignItems: 'center', paddingVertical: 60, gap: 10 },
   emptyTitle:        { fontSize: 18, fontWeight: '600', color: COLORS.ink },
   emptySub:          { fontSize: 13, color: COLORS.ink2 },
+  // Score
   scoreRow:          { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.sageLt, borderRadius: RADIUS.md, padding: 12, marginBottom: SPACING.md },
   scoreText:         { fontSize: 12, fontWeight: '500', color: COLORS.sageDk, flex: 1 },
-  shuffleBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.borderMed, marginBottom: 10 },
-  shuffleBtnText:    { fontSize: 14, fontWeight: '500', color: COLORS.ink },
-  wearBtn:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 15, borderRadius: RADIUS.lg, backgroundColor: COLORS.ink },
-  wearBtnText:       { fontSize: 15, fontWeight: '500', color: COLORS.cream },
+  // Action buttons
+  actions:           { flexDirection: 'row', gap: 10 },
+  likeBtn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 13, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.borderMed, backgroundColor: COLORS.white },
+  likeBtnText:       { fontSize: 14, fontWeight: '500', color: COLORS.ink2 },
+  wearBtn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 13, borderRadius: RADIUS.lg, backgroundColor: COLORS.ink },
+  wearBtnText:       { fontSize: 14, fontWeight: '500', color: COLORS.cream },
 });

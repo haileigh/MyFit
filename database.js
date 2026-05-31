@@ -164,3 +164,29 @@ function getSampleData() {
     { id: 8, brand: 'COS', name: 'Chunky ribbed sweater', description: 'Relaxed oversized knit', color: 'Oatmeal', color_season: 'Soft Summer', category: 'Tops', original_price: 99, times_worn: 6, last_worn: null, in_laundry: false, image_uri: null, note1: 'Dry flat.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
   ];
 }
+
+// ── Liked / Favourite Outfits ──────────────────────────────────────────────────
+const LIKED_OUTFITS_KEY = 'myfit_liked_outfits';
+
+export async function getLikedOutfits() {
+  const data = await AsyncStorage.getItem(LIKED_OUTFITS_KEY);
+  return data ? JSON.parse(data) : [];
+}
+
+export async function likeOutfit(name, itemIds) {
+  const outfits = await getLikedOutfits();
+  const newOutfit = {
+    id: makeId(),
+    name: name || 'Favourite outfit',
+    item_ids: JSON.stringify(itemIds),
+    created_at: new Date().toISOString(),
+  };
+  outfits.unshift(newOutfit);
+  await AsyncStorage.setItem(LIKED_OUTFITS_KEY, JSON.stringify(outfits));
+  return newOutfit.id;
+}
+
+export async function deleteLikedOutfit(id) {
+  const outfits = await getLikedOutfits();
+  await AsyncStorage.setItem(LIKED_OUTFITS_KEY, JSON.stringify(outfits.filter(o => o.id !== id)));
+}

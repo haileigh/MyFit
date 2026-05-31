@@ -35,6 +35,9 @@ export default function StatsScreen({ navigate }) {
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigate('Settings')} style={styles.backBtn}>
+            <Feather name="arrow-left" size={20} color={COLORS.ink} />
+          </TouchableOpacity>
           <Text style={styles.title}>Wardrobe stats</Text>
           <Text style={styles.sub}>Your closet at a glance</Text>
         </View>
@@ -205,6 +208,7 @@ const styles = StyleSheet.create({
   loadingText:    { fontSize: 14, color: COLORS.ink2 },
   scroll:         { paddingBottom: 60 },
   header:         { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg, paddingBottom: SPACING.md },
+  backBtn:        { width: 38, height: 38, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.border, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center', marginBottom: SPACING.sm },
   title:          { fontSize: 28, fontWeight: '600', color: COLORS.ink, letterSpacing: -0.5 },
   sub:            { fontSize: 12, color: COLORS.ink2, marginTop: 2 },
   grid:           { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: SPACING.xl, marginBottom: SPACING.md },
