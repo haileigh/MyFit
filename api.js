@@ -54,11 +54,12 @@ export async function analyzeWithClaude(imageUri) {
   "description": "one sentence style and fabric description",
   "colors": ["primary color name", "secondary color if present"],
   "color_season": "one of: Deep Winter, True Winter, Bright Winter, Soft Summer, True Summer, Light Summer, Deep Autumn, True Autumn, Soft Autumn, Light Spring, True Spring, Bright Spring",
-  "category": "one of: Tops, Bottoms, Skirts, Outerwear, Shoes, Dresses, Accessories, Bags, Other",
+  "category": "one of: Tops, Bottoms, Skirts, Outerwear, Shoes, Dresses, Accessories, Bags, Shorts, Pajamas, Robes, Other",
   "occasions": ["most fitting occasion from: Casual, Work, Formal, Wedding, Birthday, Date night, Funeral, Party, Travel, Gym, Beach, Weekend"],
   "size": "",
   "fit": "one of: Loose, Just right, Tight, I should really get rid of it, or empty string",
   "fabric": "primary fabric e.g. Cotton, Merino wool, Silk, Polyester",
+  "pattern": "one of: Solid, Stripes, Plaid, Floral, Animal print, Houndstooth, Gingham, Polka dot, Abstract, Colorblock, Graphic, or empty string",
   "original_price": 0
 }` },
           ],

@@ -11,7 +11,7 @@ function makeId() { return nextId++; }
 const DEFAULT_SETTINGS = {
   currency: '$', cpwGoal: null, hiddenSeasons: [],
   customFields: [
-    { key: 'custom_1', label: 'Occasion' },
+    { key: 'custom_1', label: '' },
     { key: 'custom_2', label: '' },
     { key: 'custom_3', label: '' },
   ],

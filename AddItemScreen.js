@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   SafeAreaView, ActivityIndicator, Alert, Image,
@@ -6,19 +6,32 @@ import {
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { COLORS, SPACING, RADIUS, CATEGORIES, SEASONS, FIT_OPTIONS } from './theme';
-import { insertItem, getSettings } from './database';
+import { insertItem, getSettings, getAllItems } from './database';
 import { analyzeWithClaude, getApiKey } from './api';
-import { ColorPicker, OccasionPicker, SeasonPicker, Field, ChipSelect } from './components';
+import {
+  ColorPicker, OccasionPicker, FabricPicker, PatternPicker,
+  SeasonPicker, FitPicker, CategoryPicker, Field,
+} from './components';
 
-async function removeBackground(imageUri) {
-  return imageUri;
+async function removeBackground(imageUri) { return imageUri; }
+
+// Generate a default item name: "Top #4", "Shoe #2", etc.
+async function makeDefaultName(category) {
+  try {
+    const all = await getAllItems();
+    const n = all.filter(i => i.category === category).length + 1;
+    const label = category && category !== 'Other' ? category.replace(/s$/, '') : 'Item';
+    return `${label} #${n}`;
+  } catch { return 'Item #1'; }
 }
 
 const EMPTY_FORM = {
+  category: 'Tops',
   name: '', brand: '', description: '',
-  colors: [], color_season: '', category: 'Other',
-  original_price: '', size: '', fit: '', fabric: '',
+  colors: [], color_season: '',
+  size: '', fit: '', fabric: [], pattern: '',
   occasions: [],
+  original_price: '',
   note1: '', note2: '', note3: '',
 };
 
@@ -30,11 +43,18 @@ export default function AddItemScreen({ navigate }) {
   const [form, setForm]           = useState(EMPTY_FORM);
   const [settings, setSettings]   = useState(null);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [nameIsDefault, setNameIsDefault] = useState(true);
 
-  useState(() => {
+  useEffect(() => {
     getSettings().then(setSettings);
     getApiKey().then(k => setHasApiKey(!!k));
-  });
+  }, []);
+
+  // Auto-generate name when category changes (only if user hasn't typed one)
+  useEffect(() => {
+    if (!nameIsDefault) return;
+    makeDefaultName(form.category).then(n => set('name', n));
+  }, [form.category]);
 
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
 
@@ -56,23 +76,26 @@ export default function AddItemScreen({ navigate }) {
         if (hasApiKey) {
           setAnalyzing(true);
           try {
-            const cleaned = await removeBackground(uri);
+            const cleaned  = await removeBackground(uri);
             const analysis = await analyzeWithClaude(cleaned || uri);
             if (analysis) {
+              const cat = analysis.category || form.category;
+              const defaultName = await makeDefaultName(cat);
               setForm(prev => ({
                 ...prev,
-                name:           analysis.name          || '',
-                brand:          analysis.brand         || '',
-                description:    analysis.description   || '',
+                category:       cat,
+                name:           analysis.name || defaultName,
+                brand:          analysis.brand || '',
+                description:    analysis.description || '',
                 colors:         Array.isArray(analysis.colors) ? analysis.colors : (analysis.color ? [analysis.color] : []),
-                color_season:   analysis.color_season  || '',
-                category:       analysis.category      || '',
+                color_season:   analysis.color_season || '',
                 occasions:      Array.isArray(analysis.occasions) ? analysis.occasions : [],
-                size:           analysis.size          || '',
-                fit:            analysis.fit           || '',
-                fabric:         analysis.fabric        || '',
+                size:           analysis.size || '',
+                fit:            analysis.fit || '',
+                fabric:         analysis.fabric ? [analysis.fabric] : [],
                 original_price: analysis.original_price ? String(analysis.original_price) : '',
               }));
+              setNameIsDefault(false);
             }
           } finally {
             setAnalyzing(false);
@@ -82,7 +105,7 @@ export default function AddItemScreen({ navigate }) {
           setStep('form');
         }
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Could not access camera or photos.');
       setAnalyzing(false);
     }
@@ -99,26 +122,23 @@ export default function AddItemScreen({ navigate }) {
       await insertItem({
         ...form,
         ...customVals,
-        colors: JSON.stringify(form.colors),
-        occasions: JSON.stringify(form.occasions),
+        colors:         JSON.stringify(form.colors),
+        occasions:      JSON.stringify(form.occasions),
+        fabric:         JSON.stringify(form.fabric),
         original_price: form.original_price ? parseFloat(form.original_price) : null,
-        image_uri: imageUri,
+        image_uri:      imageUri,
       });
       navigate('Closet');
-    } catch (e) {
-      Alert.alert('Error', 'Could not save item.');
-    } finally {
-      setSaving(false);
-    }
+    } catch { Alert.alert('Error', 'Could not save item.'); }
+    finally { setSaving(false); }
   };
 
-  const currency = settings?.currency || '$';
-  const visibleSeasons = settings
-    ? Object.keys(SEASONS).filter(s => !(settings.hiddenSeasons || []).includes(s))
-    : Object.keys(SEASONS);
-  const customFields = (settings?.customFields || []).filter(f => f.label);
+  const currency      = settings?.currency || '$';
+  const hiddenSeasons = settings?.hiddenSeasons || [];
+  const visibleSeasons = Object.keys(SEASONS).filter(s => !hiddenSeasons.includes(s));
+  const customFields  = (settings?.customFields || []).filter(f => f.label);
 
-  // PHOTO STEP
+  // ── PHOTO STEP ──────────────────────────────────────────────────────────────
   if (step === 'photo') {
     return (
       <SafeAreaView style={styles.container}>
@@ -167,7 +187,7 @@ export default function AddItemScreen({ navigate }) {
     );
   }
 
-  // FORM STEP
+  // ── FORM STEP ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.topBar}>
@@ -181,59 +201,66 @@ export default function AddItemScreen({ navigate }) {
             : <Text style={styles.saveTopBtnText}>Save</Text>}
         </TouchableOpacity>
       </View>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScroll}>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScroll} keyboardShouldPersistTaps="handled">
         {imageUri && (
           <View style={styles.formImgContainer}>
             <Image source={{ uri: imageUri }} style={styles.formImg} resizeMode="cover" />
           </View>
         )}
         <View style={styles.form}>
-          <Field label="Item name *" value={form.name} onChangeText={v => set('name', v)} placeholder="e.g. Merino ribbed turtleneck" />
+
+          {/* 1. Category — first, drives default name */}
+          <CategoryPicker value={form.category} onChange={v => { set('category', v); }} categories={CATEGORIES} />
+
+          {/* 2. Item name */}
+          <Field
+            label="Item name *"
+            value={form.name}
+            onChangeText={v => { set('name', v); setNameIsDefault(false); }}
+            placeholder="e.g. Merino ribbed turtleneck"
+          />
+
+          {/* 3. Brand */}
           <Field label="Brand" value={form.brand} onChangeText={v => set('brand', v)} placeholder="e.g. Arket" />
+
+          {/* 4. Description */}
           <Field label="Description" value={form.description} onChangeText={v => set('description', v)} placeholder="Brief description" multiline />
 
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Color</Text>
-            <ColorPicker value={form.colors} onChange={v => set('colors', v)} />
-          </View>
+          {/* 5. Color */}
+          <ColorPicker value={form.colors} onChange={v => set('colors', v)} />
 
-          <Field label={"Price (" + currency + ")"} value={form.original_price} onChangeText={v => set('original_price', v)} placeholder="e.g. 129" keyboardType="decimal-pad" />
+          {/* 6. Pattern */}
+          <PatternPicker value={form.pattern} onChange={v => set('pattern', v)} />
+
+          {/* 7. Color season */}
+          <SeasonPicker value={form.color_season} onChange={v => set('color_season', v)} seasons={SEASONS} visibleSeasons={visibleSeasons} />
+
+          {/* 8. Size */}
           <Field label="Size" value={form.size} onChangeText={v => set('size', v)} placeholder="e.g. S, M, 32, 10" />
-          <Field label="Fabric" value={form.fabric} onChangeText={v => set('fabric', v)} placeholder="e.g. Cotton, Merino wool" />
 
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Fit</Text>
-            <ChipSelect options={FIT_OPTIONS} value={form.fit} onChange={v => set('fit', v === form.fit ? '' : v)} />
-          </View>
+          {/* 9. Fit */}
+          <FitPicker value={form.fit} onChange={v => set('fit', v)} fitOptions={FIT_OPTIONS} />
 
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Occasion</Text>
-            <OccasionPicker value={form.occasions} onChange={v => set('occasions', v)} />
-          </View>
+          {/* 10. Fabric */}
+          <FabricPicker value={form.fabric} onChange={v => set('fabric', v)} />
 
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Color season</Text>
-            <SeasonPicker
-              value={form.color_season}
-              onChange={v => set('color_season', v)}
-              seasons={SEASONS}
-              visibleSeasons={visibleSeasons}
-            />
-          </View>
+          {/* 11. Occasion */}
+          <OccasionPicker value={form.occasions} onChange={v => set('occasions', v)} />
 
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Category</Text>
-            <ChipSelect options={CATEGORIES} value={form.category} onChange={v => set('category', v)} />
-          </View>
+          {/* 12. Price */}
+          <Field label={`Price (${currency})`} value={form.original_price} onChangeText={v => set('original_price', v)} placeholder="e.g. 129" keyboardType="decimal-pad" />
 
-          <Text style={[styles.fieldLabel, { marginBottom: 8, marginTop: 20 }]}>Notes</Text>
+          {/* 13. Notes */}
+          <Text style={styles.sectionDivider}>Notes</Text>
           <Field value={form.note1} onChangeText={v => set('note1', v)} placeholder="Note 1" />
           <Field value={form.note2} onChangeText={v => set('note2', v)} placeholder="Note 2" />
           <Field value={form.note3} onChangeText={v => set('note3', v)} placeholder="Note 3" />
 
+          {/* 14. Custom fields */}
           {customFields.length > 0 && (
             <>
-              <Text style={[styles.fieldLabel, { marginBottom: 8, marginTop: 20 }]}>Custom fields</Text>
+              <Text style={styles.sectionDivider}>Custom fields</Text>
               {customFields.map(f => (
                 <Field key={f.key} label={f.label} value={form[f.key] || ''} onChangeText={v => set(f.key, v)} placeholder={f.label} />
               ))}
@@ -269,6 +296,5 @@ const styles = StyleSheet.create({
   formImgContainer:     { marginHorizontal: SPACING.xl, borderRadius: RADIUS.xl, overflow: 'hidden', aspectRatio: 3/4, marginBottom: SPACING.lg },
   formImg:              { width: '100%', height: '100%' },
   form:                 { paddingHorizontal: SPACING.xl },
-  fieldBlock:           { marginBottom: 14 },
-  fieldLabel:           { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 },
+  sectionDivider:       { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10, marginTop: 8, paddingTop: 16, borderTopWidth: 0.5, borderTopColor: COLORS.border },
 });

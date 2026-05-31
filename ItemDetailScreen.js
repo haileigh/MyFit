@@ -8,9 +8,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { getItemById, logWear, deleteItem, updateItem, getSettings } from './database';
 import { COLORS, SPACING, RADIUS, SEASONS, CATEGORIES, FIT_OPTIONS } from './theme';
 import { analyzeWithClaude, getApiKey } from './api';
-import { ColorPicker, OccasionPicker, SeasonPicker, Field, ChipSelect, COLOR_PALETTE } from './components';
+import {
+  ColorPicker, OccasionPicker, FabricPicker, PatternPicker,
+  SeasonPicker, FitPicker, CategoryPicker, Field, COLOR_PALETTE,
+} from './components';
 
-// Parse stored array fields safely
 function parseArr(val) {
   if (Array.isArray(val)) return val;
   if (!val) return [];
@@ -48,7 +50,8 @@ export default function ItemDetailScreen({ itemId, navigate }) {
         original_price: loaded.original_price ? String(loaded.original_price) : '',
         size:           loaded.size          || '',
         fit:            loaded.fit           || '',
-        fabric:         loaded.fabric        || '',
+        fabric:         parseArr(loaded.fabric),
+        pattern:        loaded.pattern       || '',
         occasions:      parseArr(loaded.occasions),
         note1:          loaded.note1         || '',
         note2:          loaded.note2         || '',
@@ -72,7 +75,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
   };
 
   const handleDelete = () => {
-    Alert.alert('Remove item', 'Remove "' + item.name + '" from your closet?', [
+    Alert.alert('Remove item', `Remove "${item.name}" from your closet?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: async () => { await deleteItem(item.id); navigate('Closet'); } },
     ]);
@@ -99,13 +102,11 @@ export default function ItemDetailScreen({ itemId, navigate }) {
           ]);
         }
       }
-    } catch (e) { Alert.alert('Error', 'Could not access camera or photos.'); }
+    } catch { Alert.alert('Error', 'Could not access camera or photos.'); }
   };
 
   const runClaudeAnalysis = async (uri) => {
-    if (!hasApiKey) {
-      Alert.alert('API key needed', 'Add your Anthropic API key in Settings.'); return;
-    }
+    if (!hasApiKey) { Alert.alert('API key needed', 'Add your Anthropic API key in Settings.'); return; }
     setAnalyzing(true);
     try {
       const result = await analyzeWithClaude(uri);
@@ -121,7 +122,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
           occasions:      Array.isArray(result.occasions) ? result.occasions : prev.occasions,
           size:           result.size          || prev.size,
           fit:            result.fit           || prev.fit,
-          fabric:         result.fabric        || prev.fabric,
+          fabric:         result.fabric ? [result.fabric] : prev.fabric,
           original_price: result.original_price ? String(result.original_price) : prev.original_price,
         }));
         Alert.alert('Done!', 'Fields updated — review and save.');
@@ -137,6 +138,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
         ...form,
         colors:         JSON.stringify(form.colors),
         occasions:      JSON.stringify(form.occasions),
+        fabric:         JSON.stringify(form.fabric),
         original_price: form.original_price ? parseFloat(form.original_price) : null,
         image_uri:      imageUri,
       });
@@ -147,18 +149,20 @@ export default function ItemDetailScreen({ itemId, navigate }) {
 
   if (!item || !settings) return <View style={styles.container} />;
 
-  const visibleSeasons = Object.keys(SEASONS).filter(s => !(settings.hiddenSeasons || []).includes(s));
-  const season    = SEASONS[item.color_season];
-  const currency  = settings.currency || '$';
-  const cpwGoal   = settings.cpwGoal;
-  const cpwValue  = item.original_price && item.times_worn > 0 ? item.original_price / item.times_worn : null;
-  const costPerWear = cpwValue ? currency + cpwValue.toFixed(2) : '—';
-  const cpwOver   = cpwGoal && cpwValue && cpwValue > cpwGoal;
-  const customFields = (settings.customFields || []).filter(f => f.label);
-  const itemColors   = parseArr(item.colors);
-  const itemOccasions = parseArr(item.occasions);
+  const hiddenSeasons  = settings.hiddenSeasons || [];
+  const visibleSeasons = Object.keys(SEASONS).filter(s => !hiddenSeasons.includes(s));
+  const season         = SEASONS[item.color_season];
+  const currency       = settings.currency || '$';
+  const cpwGoal        = settings.cpwGoal;
+  const cpwValue       = item.original_price && item.times_worn > 0 ? item.original_price / item.times_worn : null;
+  const costPerWear    = cpwValue ? currency + cpwValue.toFixed(2) : '—';
+  const cpwOver        = cpwGoal && cpwValue && cpwValue > cpwGoal;
+  const customFields   = (settings.customFields || []).filter(f => f.label);
+  const itemColors     = parseArr(item.colors);
+  const itemOccasions  = parseArr(item.occasions);
+  const itemFabrics    = parseArr(item.fabric);
 
-  // EDIT MODE
+  // ── EDIT MODE ───────────────────────────────────────────────────────────────
   if (editing) {
     return (
       <SafeAreaView style={styles.container}>
@@ -171,7 +175,8 @@ export default function ItemDetailScreen({ itemId, navigate }) {
             {saving ? <ActivityIndicator size="small" color={COLORS.cream} /> : <Text style={styles.saveTopBtnText}>Save</Text>}
           </TouchableOpacity>
         </View>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.editScroll}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.editScroll} keyboardShouldPersistTaps="handled">
+          {/* Image */}
           <View style={styles.editImgContainer}>
             {imageUri
               ? <Image source={{ uri: imageUri }} style={styles.editImg} resizeMode="cover" />
@@ -197,53 +202,29 @@ export default function ItemDetailScreen({ itemId, navigate }) {
               <Text style={styles.reanalyzeBtnText}>Re-run Claude analysis</Text>
             </TouchableOpacity>
           )}
+
           <View style={styles.form}>
+            <CategoryPicker value={form.category} onChange={v => set('category', v)} categories={CATEGORIES} />
             <Field label="Item name *" value={form.name} onChangeText={v => set('name', v)} placeholder="e.g. Merino ribbed turtleneck" />
             <Field label="Brand" value={form.brand} onChangeText={v => set('brand', v)} placeholder="e.g. Arket" />
             <Field label="Description" value={form.description} onChangeText={v => set('description', v)} placeholder="Brief description" multiline />
-
-            <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>Color</Text>
-              <ColorPicker value={form.colors} onChange={v => set('colors', v)} />
-            </View>
-
-            <Field label={"Price (" + (settings.currency || '$') + ")"} value={form.original_price} onChangeText={v => set('original_price', v)} placeholder="e.g. 129" keyboardType="decimal-pad" />
+            <ColorPicker value={form.colors} onChange={v => set('colors', v)} />
+            <PatternPicker value={form.pattern} onChange={v => set('pattern', v)} />
+            <SeasonPicker value={form.color_season} onChange={v => set('color_season', v)} seasons={SEASONS} visibleSeasons={visibleSeasons} />
+            <Field label={`Price (${currency})`} value={form.original_price} onChangeText={v => set('original_price', v)} placeholder="e.g. 129" keyboardType="decimal-pad" />
             <Field label="Size" value={form.size} onChangeText={v => set('size', v)} placeholder="e.g. S, M, 32, 10" />
-            <Field label="Fabric" value={form.fabric} onChangeText={v => set('fabric', v)} placeholder="e.g. Cotton, Merino wool" />
+            <FitPicker value={form.fit} onChange={v => set('fit', v)} fitOptions={FIT_OPTIONS} />
+            <FabricPicker value={form.fabric} onChange={v => set('fabric', v)} />
+            <OccasionPicker value={form.occasions} onChange={v => set('occasions', v)} />
 
-            <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>Fit</Text>
-              <ChipSelect options={FIT_OPTIONS} value={form.fit} onChange={v => set('fit', v === form.fit ? '' : v)} />
-            </View>
-
-            <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>Occasion</Text>
-              <OccasionPicker value={form.occasions} onChange={v => set('occasions', v)} />
-            </View>
-
-            <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>Color season</Text>
-              <SeasonPicker
-                value={form.color_season}
-                onChange={v => set('color_season', v)}
-                seasons={SEASONS}
-                visibleSeasons={visibleSeasons}
-              />
-            </View>
-
-            <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>Category</Text>
-              <ChipSelect options={CATEGORIES} value={form.category} onChange={v => set('category', v)} />
-            </View>
-
-            <Text style={[styles.fieldLabel, { marginBottom: 8, marginTop: 20 }]}>Notes</Text>
+            <Text style={styles.sectionDivider}>Notes</Text>
             <Field value={form.note1} onChangeText={v => set('note1', v)} placeholder="Note 1" />
             <Field value={form.note2} onChangeText={v => set('note2', v)} placeholder="Note 2" />
             <Field value={form.note3} onChangeText={v => set('note3', v)} placeholder="Note 3" />
 
             {customFields.length > 0 && (
               <>
-                <Text style={[styles.fieldLabel, { marginBottom: 8, marginTop: 20 }]}>Custom fields</Text>
+                <Text style={styles.sectionDivider}>Custom fields</Text>
                 {customFields.map(f => (
                   <Field key={f.key} label={f.label} value={form[f.key] || ''} onChangeText={v => set(f.key, v)} placeholder={f.label} />
                 ))}
@@ -255,7 +236,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
     );
   }
 
-  // VIEW MODE
+  // ── VIEW MODE ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.topBar}>
@@ -290,11 +271,13 @@ export default function ItemDetailScreen({ itemId, navigate }) {
             ? <Image source={{ uri: item.image_uri }} style={styles.imgFull} resizeMode="cover" />
             : <View style={styles.imgPlaceholder}><Feather name="image" size={48} color={COLORS.ink3} /></View>}
         </View>
+
         <View style={styles.body}>
           {item.brand ? <Text style={styles.brand}>{item.brand.toUpperCase()}</Text> : null}
           <Text style={styles.name}>{item.name}</Text>
           {item.description ? <Text style={styles.description}>{item.description}</Text> : null}
 
+          {/* Pills */}
           <View style={styles.pills}>
             {season && (
               <View style={[styles.pill, { backgroundColor: season.bg }]}>
@@ -310,17 +293,22 @@ export default function ItemDetailScreen({ itemId, navigate }) {
                 </View>
               );
             })}
+            {item.pattern ? (
+              <View style={[styles.pill, { backgroundColor: COLORS.purpleLt }]}>
+                <Text style={[styles.pillText, { color: COLORS.purpleDk }]}>{item.pattern}</Text>
+              </View>
+            ) : null}
             <View style={[styles.pill, { backgroundColor: COLORS.goldLt }]}>
               <Text style={[styles.pillText, { color: '#7A6030' }]}>Worn {item.times_worn}×</Text>
             </View>
           </View>
 
+          {/* Details */}
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Details</Text>
-            {item.category    ? <AttrRow label="Category" value={item.category} /> : null}
-            {item.size        ? <AttrRow label="Size" value={item.size} /> : null}
-            {item.fabric      ? <AttrRow label="Fabric" value={item.fabric} /> : null}
-            {item.fit         ? <AttrRow label="Fit" value={item.fit} /> : null}
+            {item.category      ? <AttrRow label="Category"       value={item.category} /> : null}
+            {item.size          ? <AttrRow label="Size"           value={item.size} /> : null}
+            {item.fit           ? <AttrRow label="Fit"            value={item.fit} /> : null}
             {item.original_price ? <AttrRow label="Original price" value={currency + item.original_price} /> : null}
             <AttrRow label="Cost per wear" value={costPerWear} highlight={!cpwOver} warn={cpwOver} />
             {cpwOver && (
@@ -331,28 +319,37 @@ export default function ItemDetailScreen({ itemId, navigate }) {
             )}
           </View>
 
-          {itemOccasions.length > 0 && (
+          {/* Fabric */}
+          {itemFabrics.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Occasions</Text>
+              <Text style={styles.sectionLabel}>Fabric</Text>
               <View style={styles.tagRow}>
-                {itemOccasions.map(o => (
-                  <View key={o} style={styles.tag}>
-                    <Text style={styles.tagText}>{o}</Text>
-                  </View>
-                ))}
+                {itemFabrics.map(f => <View key={f} style={styles.tag}><Text style={styles.tagText}>{f}</Text></View>)}
               </View>
             </View>
           )}
 
-          {(item.note1 || item.note2 || item.note3) ? (
+          {/* Occasions */}
+          {itemOccasions.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Occasions</Text>
+              <View style={styles.tagRow}>
+                {itemOccasions.map(o => <View key={o} style={styles.tag}><Text style={styles.tagText}>{o}</Text></View>)}
+              </View>
+            </View>
+          )}
+
+          {/* Notes */}
+          {(item.note1 || item.note2 || item.note3) && (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Notes</Text>
               {item.note1 ? <Text style={styles.noteText}>{item.note1}</Text> : null}
               {item.note2 ? <Text style={styles.noteText}>{item.note2}</Text> : null}
               {item.note3 ? <Text style={styles.noteText}>{item.note3}</Text> : null}
             </View>
-          ) : null}
+          )}
 
+          {/* Custom fields */}
           {customFields.filter(f => item[f.key]).length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>More details</Text>
@@ -430,6 +427,5 @@ const styles = StyleSheet.create({
   reanalyzeBtn:       { marginHorizontal: SPACING.xl, marginBottom: SPACING.md, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.purpleLt, borderRadius: RADIUS.md, padding: 12 },
   reanalyzeBtnText:   { fontSize: 13, fontWeight: '500', color: COLORS.purple },
   form:               { paddingHorizontal: SPACING.xl },
-  fieldBlock:         { marginBottom: 14 },
-  fieldLabel:         { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 },
+  sectionDivider:     { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10, marginTop: 8, paddingTop: 16, borderTopWidth: 0.5, borderTopColor: COLORS.border },
 });
