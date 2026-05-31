@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import * as FileSystem from 'expo-file-system';
 
 const SECURE_KEY = 'myfit_anthropic_key';
 
@@ -24,14 +25,17 @@ export async function analyzeWithClaude(imageUri) {
   if (!apiKey) return null;
 
   try {
-    const response = await fetch(imageUri);
-    const blob = await response.blob();
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
+    // Use expo-file-system to read the image as base64 — FileReader doesn't
+    // exist in React Native, so this is the correct approach in Expo projects.
+    const base64 = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
     });
+
+    // Determine media type from URI extension; default to jpeg
+    const ext = imageUri.split('.').pop()?.toLowerCase();
+    const mediaType = ext === 'png' ? 'image/png'
+      : ext === 'webp' ? 'image/webp'
+      : 'image/jpeg';
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -46,7 +50,7 @@ export async function analyzeWithClaude(imageUri) {
         messages: [{
           role: 'user',
           content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
             { type: 'text', text: `Analyze this clothing item. Return ONLY a JSON object, no extra text:
 {
   "brand": "brand name if visible, else empty string",
@@ -68,6 +72,13 @@ export async function analyzeWithClaude(imageUri) {
     });
 
     const data = await res.json();
+
+    // Surface any API-level errors clearly
+    if (data.error) {
+      console.error('Anthropic API error:', data.error);
+      return null;
+    }
+
     const text = data.content?.[0]?.text || '{}';
     return JSON.parse(text.replace(/```json|```/g, '').trim());
   } catch (e) {
