@@ -12,12 +12,14 @@ import { getApiKey, saveApiKey, deleteApiKey } from './api';
 import { COLORS, SPACING, RADIUS, SEASONS } from './theme';
 
 export default function SettingsScreen({ navigate }) {
-  const [settings, setSettings]     = useState(null);
-  const [dirty, setDirty]           = useState(false);
-  const [apiKey, setApiKey]         = useState('');
+  const [settings, setSettings]         = useState(null);
+  const [dirty, setDirty]               = useState(false);
+  const [apiKey, setApiKey]             = useState('');
   const [apiKeyStored, setApiKeyStored] = useState(false);
-  const [showKey, setShowKey]       = useState(false);
-  const [savingKey, setSavingKey]   = useState(false);
+  const [showKey, setShowKey]           = useState(false);
+  const [savingKey, setSavingKey]       = useState(false);
+  const [backingUp, setBackingUp]       = useState(false);
+  const [restoring, setRestoring]       = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -26,7 +28,6 @@ export default function SettingsScreen({ navigate }) {
     setSettings(s);
     setDirty(false);
     setApiKeyStored(!!storedKey);
-    // Don't pre-fill the field — user should re-enter to update
   };
 
   const update = useCallback((patch) => {
@@ -68,7 +69,7 @@ export default function SettingsScreen({ navigate }) {
     ]);
   };
 
-  // Custom fields
+  // ── Custom fields ────────────────────────────────────────────────────────────
   const addCustomField = () => {
     const fields = settings.customFields || [];
     if (fields.length >= 6) { Alert.alert('Maximum reached', 'You can have up to 6 custom fields.'); return; }
@@ -92,46 +93,28 @@ export default function SettingsScreen({ navigate }) {
     update({ customFields: fields });
   };
 
-  // Season toggles
-  const [backingUp, setBackingUp]     = useState(false);
-  const [restoring, setRestoring]     = useState(false);
+  // ── Season toggles ───────────────────────────────────────────────────────────
+  const toggleSeason = (seasonName) => {
+    const hidden = new Set(settings.hiddenSeasons || []);
+    hidden.has(seasonName) ? hidden.delete(seasonName) : hidden.add(seasonName);
+    update({ hiddenSeasons: [...hidden] });
+  };
 
-  // ── BACKUP ──────────────────────────────────────────────────────────────────
+  // ── Backup ───────────────────────────────────────────────────────────────────
   const handleBackup = async () => {
     setBackingUp(true);
     try {
       const [items, s, liked] = await Promise.all([getAllItems(), getSettings(), getLikedOutfits()]);
 
-      // Copy images to a temp folder and build a manifest
-      const tmpDir = FileSystem.cacheDirectory + 'myfit_backup/';
-      await FileSystem.makeDirectoryAsync(tmpDir + 'images/', { intermediates: true }).catch(() => {});
-
-      const itemsWithRelativePaths = await Promise.all(items.map(async (item, idx) => {
-        if (!item.image_uri) return item;
-        try {
-          const ext      = item.image_uri.split('.').pop()?.split('?')[0] || 'jpg';
-          const filename = `images/item_${idx}.${ext}`;
-          await FileSystem.copyAsync({ from: item.image_uri, to: tmpDir + filename });
-          return { ...item, image_uri: filename };
-        } catch {
-          return { ...item, image_uri: null }; // file missing — skip
-        }
-      }));
-
       const manifest = {
         version:    1,
         created_at: new Date().toISOString(),
         settings:   s,
-        items:      itemsWithRelativePaths,
+        items:      items,
         liked:      liked,
         // API key intentionally excluded for security
       };
 
-      await FileSystem.writeAsStringAsync(tmpDir + 'data.json', JSON.stringify(manifest));
-
-      // Zip everything (expo-file-system doesn't have zip; share the folder as json + images)
-      // For simplicity, share data.json — images are referenced by filename
-      // A full zip would require expo-zip or similar; for now share the JSON
       const backupPath = FileSystem.documentDirectory + `myfit_backup_${Date.now()}.json`;
       await FileSystem.writeAsStringAsync(backupPath, JSON.stringify(manifest));
 
@@ -148,8 +131,8 @@ export default function SettingsScreen({ navigate }) {
     }
   };
 
-  // ── RESTORE ─────────────────────────────────────────────────────────────────
-  const handleRestore = async () => {
+  // ── Restore ──────────────────────────────────────────────────────────────────
+  const handleRestore = () => {
     Alert.alert(
       'Restore from backup',
       'This will replace all current items and settings. Your API key will not be affected. Continue?',
@@ -176,29 +159,22 @@ export default function SettingsScreen({ navigate }) {
         return;
       }
 
-      // Restore settings (keep API key as-is)
       if (manifest.settings) await saveSettings(manifest.settings);
 
-      // Restore items
       await clearAllItems();
       for (const item of manifest.items) {
         await insertItem(item);
       }
 
-      // Restore liked outfits
       if (manifest.liked) await saveLikedOutfits(manifest.liked);
 
       await load();
-      Alert.alert('Restored!', `${manifest.items.length} items restored successfully. Photos will need to be re-added if they were not stored in the backup.`);
+      Alert.alert('Restored!', `${manifest.items.length} items restored. Note: photos will need to be re-added separately.`);
     } catch (e) {
       Alert.alert('Restore failed', 'Could not restore backup: ' + e.message);
     } finally {
       setRestoring(false);
     }
-  };
-    const hidden = new Set(settings.hiddenSeasons || []);
-    hidden.has(seasonName) ? hidden.delete(seasonName) : hidden.add(seasonName);
-    update({ hiddenSeasons: [...hidden] });
   };
 
   if (!settings) return <View style={styles.container} />;
@@ -215,7 +191,8 @@ export default function SettingsScreen({ navigate }) {
         <TouchableOpacity
           onPress={handleSave}
           style={[styles.saveBtn, !dirty && styles.saveBtnDisabled]}
-          disabled={!dirty}>
+          disabled={!dirty}
+        >
           <Text style={[styles.saveBtnText, !dirty && { color: COLORS.ink3 }]}>Save</Text>
         </TouchableOpacity>
       </View>
@@ -259,10 +236,7 @@ export default function SettingsScreen({ navigate }) {
         </View>
 
         {/* ANTHROPIC API KEY */}
-        <SectionHeader
-          label="AI auto-fill"
-          sub="Your key is stored securely on this device only"
-        />
+        <SectionHeader label="AI auto-fill" sub="Your key is stored securely on this device only" />
         <View style={styles.card}>
           {apiKeyStored ? (
             <View style={styles.row}>
@@ -299,7 +273,8 @@ export default function SettingsScreen({ navigate }) {
               <TouchableOpacity
                 style={[styles.saveKeyBtn, savingKey && { opacity: 0.6 }]}
                 onPress={handleSaveApiKey}
-                disabled={savingKey}>
+                disabled={savingKey}
+              >
                 <Text style={styles.saveKeyBtnText}>{savingKey ? 'Saving…' : 'Save key'}</Text>
               </TouchableOpacity>
             </View>
@@ -380,7 +355,7 @@ export default function SettingsScreen({ navigate }) {
           </TouchableOpacity>
         </View>
 
-        {/* STATS */}
+        {/* WARDROBE / STATS */}
         <SectionHeader label="Wardrobe" />
         <View style={styles.card}>
           <TouchableOpacity style={[styles.row, { borderBottomWidth: 0 }]} onPress={() => navigate('Stats')}>
@@ -418,37 +393,37 @@ function SectionHeader({ label, sub }) {
 }
 
 const styles = StyleSheet.create({
-  container:      { flex: 1, backgroundColor: COLORS.cream },
-  topBar:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.xl, paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
-  iconBtn:        { width: 38, height: 38, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.border, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center' },
-  title:          { fontSize: 17, fontWeight: '600', color: COLORS.ink },
-  saveBtn:        { backgroundColor: COLORS.ink, borderRadius: RADIUS.full, paddingHorizontal: 18, paddingVertical: 8 },
-  saveBtnDisabled:{ backgroundColor: COLORS.cream, borderWidth: 0.5, borderColor: COLORS.border },
-  saveBtnText:    { fontSize: 14, fontWeight: '600', color: COLORS.cream },
-  scroll:         { paddingBottom: 40 },
-  sectionHeader:  { paddingHorizontal: SPACING.xl, paddingTop: SPACING.xl, paddingBottom: SPACING.sm },
-  sectionLabel:   { fontSize: 11, fontWeight: '600', color: COLORS.ink3, letterSpacing: 1, textTransform: 'uppercase' },
-  sectionSub:     { fontSize: 12, color: COLORS.ink3, marginTop: 2 },
-  card:           { marginHorizontal: SPACING.xl, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, borderWidth: 0.5, borderColor: COLORS.border, overflow: 'hidden' },
-  row:            { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.md, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: COLORS.border },
-  rowLabel:       { fontSize: 14, fontWeight: '500', color: COLORS.ink },
-  rowSub:         { fontSize: 12, color: COLORS.ink3, marginTop: 1 },
-  currencyInput:  { width: 44, height: 36, borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.sm, textAlign: 'center', fontSize: 16, fontWeight: '600', color: COLORS.ink, backgroundColor: COLORS.cream },
-  goalInputWrap:  { flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.sm, backgroundColor: COLORS.cream, paddingHorizontal: 8, height: 36 },
-  goalCurrency:   { fontSize: 14, color: COLORS.ink2, marginRight: 2 },
-  goalInput:      { width: 60, fontSize: 14, color: COLORS.ink },
-  keyInputRow:    { flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.md, backgroundColor: COLORS.cream, paddingHorizontal: 12, height: 44 },
-  keyInput:       { flex: 1, fontSize: 13, color: COLORS.ink },
-  eyeBtn:         { padding: 4 },
-  saveKeyBtn:     { backgroundColor: COLORS.ink, borderRadius: RADIUS.md, paddingVertical: 12, alignItems: 'center' },
-  saveKeyBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.cream },
-  removeKeyBtn:   { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: RADIUS.sm, borderWidth: 0.5, borderColor: COLORS.terra, backgroundColor: COLORS.terraLt },
-  removeKeyText:  { fontSize: 12, fontWeight: '500', color: COLORS.terra },
-  emptyNote:      { fontSize: 13, color: COLORS.ink3, padding: SPACING.md, textAlign: 'center' },
-  fieldInput:     { flex: 1, fontSize: 14, color: COLORS.ink, paddingVertical: 4 },
-  removeBtn:      { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  addFieldBtn:    { flexDirection: 'row', alignItems: 'center', gap: 8, padding: SPACING.md, borderTopWidth: 0.5, borderTopColor: COLORS.border },
-  addFieldBtnText:{ fontSize: 14, fontWeight: '500', color: COLORS.sage },
-  seasonDot:      { width: 36, height: 22, borderRadius: RADIUS.sm, alignItems: 'center', justifyContent: 'center' },
-  seasonDotText:  { fontSize: 10, fontWeight: '600' },
+  container:       { flex: 1, backgroundColor: COLORS.cream },
+  topBar:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.xl, paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
+  iconBtn:         { width: 38, height: 38, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.border, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center' },
+  title:           { fontSize: 17, fontWeight: '600', color: COLORS.ink },
+  saveBtn:         { backgroundColor: COLORS.ink, borderRadius: RADIUS.full, paddingHorizontal: 18, paddingVertical: 8 },
+  saveBtnDisabled: { backgroundColor: COLORS.cream, borderWidth: 0.5, borderColor: COLORS.border },
+  saveBtnText:     { fontSize: 14, fontWeight: '600', color: COLORS.cream },
+  scroll:          { paddingBottom: 40 },
+  sectionHeader:   { paddingHorizontal: SPACING.xl, paddingTop: SPACING.xl, paddingBottom: SPACING.sm },
+  sectionLabel:    { fontSize: 11, fontWeight: '600', color: COLORS.ink3, letterSpacing: 1, textTransform: 'uppercase' },
+  sectionSub:      { fontSize: 12, color: COLORS.ink3, marginTop: 2 },
+  card:            { marginHorizontal: SPACING.xl, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, borderWidth: 0.5, borderColor: COLORS.border, overflow: 'hidden' },
+  row:             { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.md, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: COLORS.border },
+  rowLabel:        { fontSize: 14, fontWeight: '500', color: COLORS.ink },
+  rowSub:          { fontSize: 12, color: COLORS.ink3, marginTop: 1 },
+  currencyInput:   { width: 44, height: 36, borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.sm, textAlign: 'center', fontSize: 16, fontWeight: '600', color: COLORS.ink, backgroundColor: COLORS.cream },
+  goalInputWrap:   { flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.sm, backgroundColor: COLORS.cream, paddingHorizontal: 8, height: 36 },
+  goalCurrency:    { fontSize: 14, color: COLORS.ink2, marginRight: 2 },
+  goalInput:       { width: 60, fontSize: 14, color: COLORS.ink },
+  keyInputRow:     { flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.md, backgroundColor: COLORS.cream, paddingHorizontal: 12, height: 44 },
+  keyInput:        { flex: 1, fontSize: 13, color: COLORS.ink },
+  eyeBtn:          { padding: 4 },
+  saveKeyBtn:      { backgroundColor: COLORS.ink, borderRadius: RADIUS.md, paddingVertical: 12, alignItems: 'center' },
+  saveKeyBtnText:  { fontSize: 14, fontWeight: '600', color: COLORS.cream },
+  removeKeyBtn:    { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: RADIUS.sm, borderWidth: 0.5, borderColor: COLORS.terra, backgroundColor: COLORS.terraLt },
+  removeKeyText:   { fontSize: 12, fontWeight: '500', color: COLORS.terra },
+  emptyNote:       { fontSize: 13, color: COLORS.ink3, padding: SPACING.md, textAlign: 'center' },
+  fieldInput:      { flex: 1, fontSize: 14, color: COLORS.ink, paddingVertical: 4 },
+  removeBtn:       { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  addFieldBtn:     { flexDirection: 'row', alignItems: 'center', gap: 8, padding: SPACING.md, borderTopWidth: 0.5, borderTopColor: COLORS.border },
+  addFieldBtnText: { fontSize: 14, fontWeight: '500', color: COLORS.sage },
+  seasonDot:       { width: 36, height: 22, borderRadius: RADIUS.sm, alignItems: 'center', justifyContent: 'center' },
+  seasonDotText:   { fontSize: 10, fontWeight: '600' },
 });
