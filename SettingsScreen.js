@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, TextInput, Alert, Switch,
+  SafeAreaView, TextInput, Alert, Switch, ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { getSettings, saveSettings } from './database';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import * as DocumentPicker from 'expo-document-picker';
+import { getSettings, saveSettings, getAllItems, clearAllItems, insertItem, getLikedOutfits, saveLikedOutfits } from './database';
 import { getApiKey, saveApiKey, deleteApiKey } from './api';
 import { COLORS, SPACING, RADIUS, SEASONS } from './theme';
 
@@ -90,7 +93,109 @@ export default function SettingsScreen({ navigate }) {
   };
 
   // Season toggles
-  const toggleSeason = (seasonName) => {
+  const [backingUp, setBackingUp]     = useState(false);
+  const [restoring, setRestoring]     = useState(false);
+
+  // ── BACKUP ──────────────────────────────────────────────────────────────────
+  const handleBackup = async () => {
+    setBackingUp(true);
+    try {
+      const [items, s, liked] = await Promise.all([getAllItems(), getSettings(), getLikedOutfits()]);
+
+      // Copy images to a temp folder and build a manifest
+      const tmpDir = FileSystem.cacheDirectory + 'myfit_backup/';
+      await FileSystem.makeDirectoryAsync(tmpDir + 'images/', { intermediates: true }).catch(() => {});
+
+      const itemsWithRelativePaths = await Promise.all(items.map(async (item, idx) => {
+        if (!item.image_uri) return item;
+        try {
+          const ext      = item.image_uri.split('.').pop()?.split('?')[0] || 'jpg';
+          const filename = `images/item_${idx}.${ext}`;
+          await FileSystem.copyAsync({ from: item.image_uri, to: tmpDir + filename });
+          return { ...item, image_uri: filename };
+        } catch {
+          return { ...item, image_uri: null }; // file missing — skip
+        }
+      }));
+
+      const manifest = {
+        version:    1,
+        created_at: new Date().toISOString(),
+        settings:   s,
+        items:      itemsWithRelativePaths,
+        liked:      liked,
+        // API key intentionally excluded for security
+      };
+
+      await FileSystem.writeAsStringAsync(tmpDir + 'data.json', JSON.stringify(manifest));
+
+      // Zip everything (expo-file-system doesn't have zip; share the folder as json + images)
+      // For simplicity, share data.json — images are referenced by filename
+      // A full zip would require expo-zip or similar; for now share the JSON
+      const backupPath = FileSystem.documentDirectory + `myfit_backup_${Date.now()}.json`;
+      await FileSystem.writeAsStringAsync(backupPath, JSON.stringify(manifest));
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(backupPath, { mimeType: 'application/json', dialogTitle: 'Save your MyFit backup' });
+      } else {
+        Alert.alert('Backup saved', `Saved to: ${backupPath}`);
+      }
+    } catch (e) {
+      Alert.alert('Backup failed', 'Could not create backup: ' + e.message);
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
+  // ── RESTORE ─────────────────────────────────────────────────────────────────
+  const handleRestore = async () => {
+    Alert.alert(
+      'Restore from backup',
+      'This will replace all current items and settings. Your API key will not be affected. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Choose backup file', onPress: doRestore },
+      ]
+    );
+  };
+
+  const doRestore = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
+      if (result.canceled) return;
+
+      setRestoring(true);
+      const file = result.assets[0];
+      const raw  = await FileSystem.readAsStringAsync(file.uri);
+      const manifest = JSON.parse(raw);
+
+      if (!manifest.version || !manifest.items) {
+        Alert.alert('Invalid backup', 'This file does not appear to be a valid MyFit backup.');
+        setRestoring(false);
+        return;
+      }
+
+      // Restore settings (keep API key as-is)
+      if (manifest.settings) await saveSettings(manifest.settings);
+
+      // Restore items
+      await clearAllItems();
+      for (const item of manifest.items) {
+        await insertItem(item);
+      }
+
+      // Restore liked outfits
+      if (manifest.liked) await saveLikedOutfits(manifest.liked);
+
+      await load();
+      Alert.alert('Restored!', `${manifest.items.length} items restored successfully. Photos will need to be re-added if they were not stored in the backup.`);
+    } catch (e) {
+      Alert.alert('Restore failed', 'Could not restore backup: ' + e.message);
+    } finally {
+      setRestoring(false);
+    }
+  };
     const hidden = new Set(settings.hiddenSeasons || []);
     hidden.has(seasonName) ? hidden.delete(seasonName) : hidden.add(seasonName);
     update({ hiddenSeasons: [...hidden] });
@@ -248,6 +353,31 @@ export default function SettingsScreen({ navigate }) {
               />
             </View>
           ))}
+        </View>
+
+        {/* BACKUP & RESTORE */}
+        <SectionHeader label="Backup & Restore" sub="Export your closet to Files. API key is never included." />
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.row} onPress={handleBackup} disabled={backingUp}>
+            <Feather name="download" size={18} color={COLORS.ink2} style={{ marginRight: 12 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>Export backup</Text>
+              <Text style={styles.rowSub}>Save all items and settings to a file</Text>
+            </View>
+            {backingUp
+              ? <ActivityIndicator size="small" color={COLORS.sage} />
+              : <Feather name="chevron-right" size={16} color={COLORS.ink3} />}
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.row, { borderBottomWidth: 0 }]} onPress={handleRestore} disabled={restoring}>
+            <Feather name="upload" size={18} color={COLORS.ink2} style={{ marginRight: 12 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>Restore from backup</Text>
+              <Text style={styles.rowSub}>Replace current data with a backup file</Text>
+            </View>
+            {restoring
+              ? <ActivityIndicator size="small" color={COLORS.terra} />
+              : <Feather name="chevron-right" size={16} color={COLORS.ink3} />}
+          </TouchableOpacity>
         </View>
 
         {/* STATS */}
