@@ -1,192 +1,247 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DEFAULT_SKILLS, DEFAULT_PRIORITY_SKILLS, REQUIRED_HOURS } from './theme';
 
-const ITEMS_KEY     = 'myfit_items';
-const OUTFITS_KEY   = 'myfit_outfits';
-const SETTINGS_KEY  = 'myfit_settings';
-const WISHLIST_KEY  = 'myfit_wishlist';
-let nextId = 1000;
-
-function makeId() { return nextId++; }
-
-const DEFAULT_SETTINGS = {
-  currency: '$', cpwGoal: null, hiddenSeasons: [],
-  customFields: [
-    { key: 'custom_1', label: '' },
-    { key: 'custom_2', label: '' },
-    { key: 'custom_3', label: '' },
-  ],
+const KEYS = {
+  LOGS: 'dl_logs',
+  SETTINGS: 'dl_settings',
+  JOURNEY: 'dl_journey',
+  STATS: 'dl_stats',
 };
 
-export async function getSettings() {
-  try {
-    const data = await AsyncStorage.getItem(SETTINGS_KEY);
-    return data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : { ...DEFAULT_SETTINGS };
-  } catch { return { ...DEFAULT_SETTINGS }; }
-}
+// ─── Default data ────────────────────────────────────────────────────────────
 
-export async function saveSettings(settings) {
-  await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-}
+const defaultSettings = () => ({
+  driverName: '',
+  state: 'Virginia',
+  requiredTotal: REQUIRED_HOURS.total,
+  requiredNight: REQUIRED_HOURS.night, // 15 for Virginia
+  prioritySkills: [...DEFAULT_PRIORITY_SKILLS],
+  customSkills: [],
+  currency: '$',
+});
 
-export async function initDB() {
-  const existing = await AsyncStorage.getItem(ITEMS_KEY);
-  if (!existing) await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(getSampleData()));
-  const items = await getAllItems();
-  if (items.length > 0) {
-    const maxId = Math.max(...items.map(i => i.id));
-    nextId = maxId + 1;
-  }
-}
+const defaultStats = () => ({
+  totalHours: 0,
+  nightHours: 0,
+});
 
-export async function getAllItems() {
-  const data = await AsyncStorage.getItem(ITEMS_KEY);
-  return data ? JSON.parse(data) : [];
-}
+const defaultJourney = () => ([
+  {
+    id: 'permit',
+    title: 'Get learner permit',
+    sub: 'Pass written knowledge test at the DMV',
+    icon: 'document-text-outline',
+    status: 'active',
+    substeps: [
+      { text: 'Study the driver handbook', done: false },
+      { text: 'Schedule knowledge test at DMV', done: false },
+      { text: 'Bring ID documents (birth certificate, proof of residence)', done: false },
+      { text: 'Pass the written test (70% or above)', done: false },
+      { text: 'Pay permit fee', done: false },
+      { text: 'Receive learner permit card', done: false },
+    ],
+  },
+  {
+    id: 'hours',
+    title: 'Log required practice hours',
+    sub: 'Complete supervised driving hours including nighttime',
+    icon: 'time-outline',
+    status: 'active',
+    substeps: [
+      { text: 'Log first 10 daytime hours', done: false },
+      { text: 'Log 20 total hours', done: false },
+      { text: 'Log 35 total hours', done: false },
+      { text: 'Log 45 total hours', done: false },
+      { text: 'Log 15 nighttime hours', done: false },
+    ],
+    autoTracked: true,
+  },
+  {
+    id: 'drivers-ed',
+    title: 'Complete driver education',
+    sub: 'Classroom course + in-car lessons with an instructor',
+    icon: 'school-outline',
+    status: 'not_started',
+    substeps: [
+      { text: 'Research & choose a classroom program', done: false, hasNote: true, noteKey: 'classroom_program', notePlaceholder: 'Program name, location, contact info…' },
+      { text: 'Sign up for classroom program', done: false },
+      { text: 'Complete classroom sessions', done: false },
+      { text: 'Research & choose an in-car instructor or program', done: false, hasNote: true, noteKey: 'incar_program', notePlaceholder: 'Instructor name, school, contact info…' },
+      { text: 'Sign up for in-car lessons', done: false },
+      { text: 'Complete in-car lessons with instructor', done: false },
+      { text: 'Receive completion certificate', done: false },
+    ],
+  },
+  {
+    id: 'vision',
+    title: 'Pass vision screening',
+    sub: 'Eye test required before road test',
+    icon: 'eye-outline',
+    status: 'not_started',
+    substeps: [
+      { text: 'Schedule eye exam or visit DMV for screening', done: false },
+      { text: 'Obtain glasses/contacts prescription if needed', done: false },
+      { text: 'Pass DMV vision screening', done: false },
+    ],
+  },
+  {
+    id: 'test-signup',
+    title: 'Schedule the road test',
+    sub: 'Book driving exam once all hours are complete',
+    icon: 'calendar-outline',
+    status: 'not_started',
+    substeps: [
+      { text: 'Confirm all required hours are logged', done: false },
+      { text: 'Visit DMV website and schedule road test', done: false },
+      { text: 'Get parent/guardian signature on application form', done: false },
+      { text: 'Confirm test date, time, and location', done: false },
+      { text: 'Arrange a vehicle for the test day', done: false },
+    ],
+  },
+  {
+    id: 'road-test',
+    title: 'Pass the road test',
+    sub: 'Behind-the-wheel exam with a DMV examiner',
+    icon: 'car-outline',
+    status: 'not_started',
+    substeps: [
+      { text: 'Gather required documents (permit, insurance, registration)', done: false },
+      { text: 'Arrive 15 minutes early', done: false },
+      { text: 'Pass pre-drive vehicle safety check', done: false },
+      { text: 'Complete the road test route', done: false },
+      { text: 'Score 70% or above to pass', done: false },
+    ],
+  },
+  {
+    id: 'license',
+    title: 'Get your license!',
+    sub: "Receive your provisional or full driver's license",
+    icon: 'ribbon-outline',
+    status: 'not_started',
+    substeps: [
+      { text: 'Pay licensing fee at the DMV counter', done: false },
+      { text: 'Have photo taken for license card', done: false },
+      { text: 'Receive temporary paper license', done: false },
+      { text: 'Wait for permanent license card in the mail', done: false },
+      { text: "🎉 You're a licensed driver!", done: false },
+    ],
+  },
+]);
 
-export async function getItemById(id) {
-  const items = await getAllItems();
-  return items.find(i => i.id === id) || null;
-}
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export async function insertItem(item) {
-  const items = await getAllItems();
-  const newItem = { ...item, id: makeId(), times_worn: 0, last_worn: null, in_laundry: false, created_at: new Date().toISOString() };
-  items.unshift(newItem);
-  await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(items));
-  return newItem.id;
-}
+const save = async (key, value) => {
+  await AsyncStorage.setItem(key, JSON.stringify(value));
+};
 
-export async function updateItem(id, fields) {
-  const items = await getAllItems();
-  const idx = items.findIndex(i => i.id === id);
-  if (idx !== -1) {
-    items[idx] = { ...items[idx], ...fields, id, updated_at: new Date().toISOString() };
-    await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(items));
-  }
-}
+const load = async (key) => {
+  const raw = await AsyncStorage.getItem(key);
+  return raw ? JSON.parse(raw) : null;
+};
 
-export async function deleteItem(id) {
-  const items = await getAllItems();
-  await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(items.filter(i => i.id !== id)));
-}
+// ─── Settings ─────────────────────────────────────────────────────────────────
 
-export async function logWear(id) {
-  const items = await getAllItems();
-  const idx = items.findIndex(i => i.id === id);
-  if (idx !== -1) {
-    items[idx].times_worn = (items[idx].times_worn || 0) + 1;
-    items[idx].last_worn = new Date().toISOString();
-    await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(items));
-  }
-}
+export const getSettings = async () => {
+  const saved = await load(KEYS.SETTINGS);
+  return saved ? { ...defaultSettings(), ...saved } : defaultSettings();
+};
 
-export async function getAllOutfits() {
-  const data = await AsyncStorage.getItem(OUTFITS_KEY);
-  return data ? JSON.parse(data) : [];
-}
+export const saveSettings = async (settings) => {
+  await save(KEYS.SETTINGS, settings);
+};
 
-export async function insertOutfit(name, itemIds) {
-  const outfits = await getAllOutfits();
-  const newOutfit = { id: makeId(), name: name || 'My Outfit', item_ids: JSON.stringify(itemIds), times_worn: 0, last_worn: null, created_at: new Date().toISOString() };
-  outfits.unshift(newOutfit);
-  await AsyncStorage.setItem(OUTFITS_KEY, JSON.stringify(outfits));
-  return newOutfit.id;
-}
+// ─── Stats ────────────────────────────────────────────────────────────────────
 
-export async function logOutfitWear(id) {
-  const outfits = await getAllOutfits();
-  const idx = outfits.findIndex(o => o.id === id);
-  if (idx !== -1) {
-    outfits[idx].times_worn = (outfits[idx].times_worn || 0) + 1;
-    outfits[idx].last_worn = new Date().toISOString();
-    await AsyncStorage.setItem(OUTFITS_KEY, JSON.stringify(outfits));
-    const itemIds = JSON.parse(outfits[idx].item_ids);
-    for (const itemId of itemIds) { await logWear(itemId); }
-  }
-}
+export const getStats = async () => {
+  const saved = await load(KEYS.STATS);
+  return saved ? { ...defaultStats(), ...saved } : defaultStats();
+};
 
-// ── Wishlist ───────────────────────────────────────────────────
-export async function getWishlist() {
-  const data = await AsyncStorage.getItem(WISHLIST_KEY);
-  return data ? JSON.parse(data) : [];
-}
+export const saveStats = async (stats) => {
+  await save(KEYS.STATS, stats);
+};
 
-export async function addWishlistItem(item) {
-  const items = await getWishlist();
-  const newItem = { ...item, id: makeId(), desired_price: item.desired_price ? parseFloat(item.desired_price) : null, actual_price: null, created_at: new Date().toISOString() };
-  items.unshift(newItem);
-  await AsyncStorage.setItem(WISHLIST_KEY, JSON.stringify(items));
-  return newItem.id;
-}
+// ─── Drive Logs ───────────────────────────────────────────────────────────────
 
-export async function updateWishlistItem(id, fields) {
-  const items = await getWishlist();
-  const idx = items.findIndex(i => i.id === id);
-  if (idx !== -1) {
-    items[idx] = { ...items[idx], ...fields, id };
-    await AsyncStorage.setItem(WISHLIST_KEY, JSON.stringify(items));
-  }
-}
+export const getLogs = async () => {
+  const saved = await load(KEYS.LOGS);
+  return saved || [];
+};
 
-export async function deleteWishlistItem(id) {
-  const items = await getWishlist();
-  await AsyncStorage.setItem(WISHLIST_KEY, JSON.stringify(items.filter(i => i.id !== id)));
-}
+export const addLog = async (entry) => {
+  const logs = await getLogs();
+  const newLog = { id: Date.now().toString(), createdAt: new Date().toISOString(), ...entry };
+  const updated = [newLog, ...logs];
+  await save(KEYS.LOGS, updated);
+  return updated;
+};
 
-// ── Stats ──────────────────────────────────────────────────────
-export async function getStats() {
-  const items = await getAllItems();
-  const total = items.length;
-  const totalWorn = items.reduce((sum, i) => sum + (i.times_worn || 0), 0);
-  const neverWorn = items.filter(i => !i.times_worn).length;
-  const inLaundry = items.filter(i => i.in_laundry).length;
-  const mostWorn = [...items].sort((a, b) => (b.times_worn || 0) - (a.times_worn || 0))[0] || null;
-  const catMap = {}, seasonMap = {};
-  items.forEach(i => {
-    if (i.category) catMap[i.category] = (catMap[i.category] || 0) + 1;
-    if (i.color_season) seasonMap[i.color_season] = (seasonMap[i.color_season] || 0) + 1;
+export const deleteLog = async (id) => {
+  const logs = await getLogs();
+  const updated = logs.filter(l => l.id !== id);
+  await save(KEYS.LOGS, updated);
+  return updated;
+};
+
+// ─── Journey ──────────────────────────────────────────────────────────────────
+
+export const getJourney = async () => {
+  const saved = await load(KEYS.JOURNEY);
+  return saved || defaultJourney();
+};
+
+export const saveJourney = async (journey) => {
+  await save(KEYS.JOURNEY, journey);
+};
+
+export const toggleSubstep = async (stepId, substepIndex) => {
+  const journey = await getJourney();
+  const step = journey.find(s => s.id === stepId);
+  if (!step || step.autoTracked) return journey;
+  step.substeps[substepIndex].done = !step.substeps[substepIndex].done;
+  const allDone = step.substeps.every(s => s.done);
+  step.status = allDone ? 'done' : step.status === 'not_started' ? 'active' : step.status;
+  await save(KEYS.JOURNEY, journey);
+  return journey;
+};
+
+export const saveSubstepNote = async (stepId, noteKey, noteValue) => {
+  const journey = await getJourney();
+  const step = journey.find(s => s.id === stepId);
+  if (!step) return journey;
+  if (!step.notes) step.notes = {};
+  step.notes[noteKey] = noteValue;
+  await save(KEYS.JOURNEY, journey);
+  return journey;
+};
+
+// Sync the 'hours' step substeps based on current stats and user-configured requirements
+export const syncHoursStep = async (totalHours, nightHours, requiredNight = 15) => {
+  const journey = await getJourney();
+  const step = journey.find(s => s.id === 'hours');
+  if (!step) return journey;
+  const milestones = [10, 20, 35, 45];
+  milestones.forEach((m, i) => {
+    step.substeps[i].done = totalHours >= m;
   });
-  const byCategory = Object.entries(catMap).map(([category, count]) => ({ category, count })).sort((a, b) => b.count - a.count);
-  const bySeason = Object.entries(seasonMap).map(([color_season, count]) => ({ color_season, count })).sort((a, b) => b.count - a.count);
-  const unworn = items.filter(i => !i.times_worn).slice(0, 10);
-  return { total, totalWorn, neverWorn, inLaundry, mostWorn, byCategory, bySeason, unworn, allItems: items };
-}
+  step.substeps[4].done = nightHours >= requiredNight;
+  const allDone = step.substeps.every(s => s.done);
+  step.status = allDone ? 'done' : 'active';
+  await save(KEYS.JOURNEY, journey);
+  return journey;
+};
 
-function getSampleData() {
-  return [
-    { id: 1, brand: 'Toteme', name: 'Double-breasted coat', description: 'Structured wool-blend coat', color: 'Camel', color_season: 'Deep Winter', category: 'Outerwear', original_price: 580, times_worn: 7, last_worn: null, in_laundry: false, image_uri: null, note1: 'Dry clean only.', note2: '', note3: '', custom_1: 'Work', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
-    { id: 2, brand: 'Agolde', name: '90s pinch waist jeans', description: 'High-rise relaxed jeans', color: 'Indigo', color_season: 'Deep Winter', category: 'Bottoms', original_price: 228, times_worn: 18, last_worn: null, in_laundry: false, image_uri: null, note1: 'Size down one.', note2: '', note3: '', custom_1: 'Casual', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
-    { id: 3, brand: 'Arket', name: 'Merino midi dress', description: 'Ribbed knit dress', color: 'Burgundy', color_season: 'Deep Winter', category: 'Dresses', original_price: 179, times_worn: 5, last_worn: null, in_laundry: false, image_uri: null, note1: 'Hand wash cold.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
-    { id: 4, brand: 'New Balance', name: '990v5 sneakers', description: 'Classic running sneaker', color: 'Grey', color_season: 'Soft Summer', category: 'Shoes', original_price: 185, times_worn: 22, last_worn: null, in_laundry: false, image_uri: null, note1: 'Go up half a size.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
-    { id: 5, brand: 'Acne Studios', name: 'Logo wool scarf', description: 'Oversized fringed scarf', color: 'Ivory', color_season: 'Soft Summer', category: 'Accessories', original_price: 320, times_worn: 9, last_worn: null, in_laundry: false, image_uri: null, note1: 'Bought in Stockholm.', note2: '', note3: '', custom_1: 'Travel', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
-    { id: 6, brand: 'Polène', name: 'Numéro un mini', description: 'Structured leather bag', color: 'Taupe', color_season: 'True Autumn', category: 'Bags', original_price: 295, times_worn: 14, last_worn: null, in_laundry: false, image_uri: null, note1: 'Very durable.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
-    { id: 7, brand: 'Madewell', name: 'The Zahara loafer', description: 'Block-heel leather loafer', color: 'Black', color_season: 'Deep Winter', category: 'Shoes', original_price: 148, times_worn: 11, last_worn: null, in_laundry: false, image_uri: null, note1: 'Resoleable.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
-    { id: 8, brand: 'COS', name: 'Chunky ribbed sweater', description: 'Relaxed oversized knit', color: 'Oatmeal', color_season: 'Soft Summer', category: 'Tops', original_price: 99, times_worn: 6, last_worn: null, in_laundry: false, image_uri: null, note1: 'Dry flat.', note2: '', note3: '', custom_1: '', custom_2: '', custom_3: '', created_at: new Date().toISOString() },
-  ];
-}
+// ─── Seed / Reset ─────────────────────────────────────────────────────────────
 
-// ── Liked / Favourite Outfits ──────────────────────────────────────────────────
-const LIKED_OUTFITS_KEY = 'myfit_liked_outfits';
+export const isFirstLaunch = async () => {
+  const val = await AsyncStorage.getItem('dl_launched');
+  return val === null;
+};
 
-export async function getLikedOutfits() {
-  const data = await AsyncStorage.getItem(LIKED_OUTFITS_KEY);
-  return data ? JSON.parse(data) : [];
-}
+export const markLaunched = async () => {
+  await AsyncStorage.setItem('dl_launched', '1');
+};
 
-export async function likeOutfit(name, itemIds) {
-  const outfits = await getLikedOutfits();
-  const newOutfit = {
-    id: makeId(),
-    name: name || 'Favourite outfit',
-    item_ids: JSON.stringify(itemIds),
-    created_at: new Date().toISOString(),
-  };
-  outfits.unshift(newOutfit);
-  await AsyncStorage.setItem(LIKED_OUTFITS_KEY, JSON.stringify(outfits));
-  return newOutfit.id;
-}
-
-export async function deleteLikedOutfit(id) {
-  const outfits = await getLikedOutfits();
-  await AsyncStorage.setItem(LIKED_OUTFITS_KEY, JSON.stringify(outfits.filter(o => o.id !== id)));
-}
+export const clearAll = async () => {
+  await AsyncStorage.multiRemove([KEYS.LOGS, KEYS.SETTINGS, KEYS.JOURNEY, KEYS.STATS, 'dl_launched']);
+};
