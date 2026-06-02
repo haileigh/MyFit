@@ -20,17 +20,15 @@ function parseArr(val) {
 }
 
 export default function ItemDetailScreen({ itemId, navigate }) {
-  const [item, setItem]               = useState(null);
-  const [settings, setSettings]       = useState(null);
-  const [justLogged, setJustLogged]   = useState(false);
-  const [editing, setEditing]         = useState(false);
-  const [form, setForm]               = useState({});
-  const [imageUri, setImageUri]       = useState(null);
-  const [analyzing, setAnalyzing]     = useState(false);
-  const [analyzeError, setAnalyzeError] = useState(null);  // inline error message
-  const [analyzeOk, setAnalyzeOk]     = useState(false);   // inline success state
-  const [saving, setSaving]           = useState(false);
-  const [hasApiKey, setHasApiKey]     = useState(false);
+  const [item, setItem]             = useState(null);
+  const [settings, setSettings]     = useState(null);
+  const [justLogged, setJustLogged] = useState(false);
+  const [editing, setEditing]       = useState(false);
+  const [form, setForm]             = useState({});
+  const [imageUri, setImageUri]     = useState(null);
+  const [analyzing, setAnalyzing]   = useState(false);
+  const [saving, setSaving]         = useState(false);
+  const [hasApiKey, setHasApiKey]   = useState(false);
 
   useEffect(() => { load(); }, [itemId]);
 
@@ -43,21 +41,21 @@ export default function ItemDetailScreen({ itemId, navigate }) {
       const customVals = {};
       (s.customFields || []).forEach(f => { customVals[f.key] = loaded[f.key] || ''; });
       setForm({
-        name:           loaded.name           || '',
-        brand:          loaded.brand          || '',
-        description:    loaded.description    || '',
+        name:           loaded.name          || '',
+        brand:          loaded.brand         || '',
+        description:    loaded.description   || '',
         colors:         parseArr(loaded.colors),
-        color_season:   loaded.color_season   || '',
-        category:       loaded.category       || '',
+        color_season:   loaded.color_season  || '',
+        category:       loaded.category      || '',
         original_price: loaded.original_price ? String(loaded.original_price) : '',
-        size:           loaded.size           || '',
-        fit:            loaded.fit            || '',
+        size:           loaded.size          || '',
+        fit:            loaded.fit           || '',
         fabric:         parseArr(loaded.fabric),
-        pattern:        loaded.pattern        || '',
+        pattern:        loaded.pattern       || '',
         occasions:      parseArr(loaded.occasions),
-        note1:          loaded.note1          || '',
-        note2:          loaded.note2          || '',
-        note3:          loaded.note3          || '',
+        note1:          loaded.note1         || '',
+        note2:          loaded.note2         || '',
+        note3:          loaded.note3         || '',
         ...customVals,
       });
       setImageUri(loaded.image_uri || null);
@@ -96,12 +94,9 @@ export default function ItemDetailScreen({ itemId, navigate }) {
         result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, allowsEditing: true, aspect: [3, 4] });
       }
       if (!result.canceled) {
-        const uri = result.assets[0].uri;
-        setImageUri(uri);
-        setAnalyzeError(null);
-        setAnalyzeOk(false);
+        const uri = result.assets[0].uri; setImageUri(uri);
         if (hasApiKey) {
-          Alert.alert('Analyze with Claude?', 'Auto-fill fields from the new photo?', [
+          Alert.alert('Re-run analysis?', 'Run Claude AI on the new photo?', [
             { text: 'No thanks', style: 'cancel' },
             { text: 'Yes, analyze', onPress: () => runClaudeAnalysis(uri) },
           ]);
@@ -111,42 +106,28 @@ export default function ItemDetailScreen({ itemId, navigate }) {
   };
 
   const runClaudeAnalysis = async (uri) => {
-    if (!hasApiKey) {
-      setAnalyzeError('No API key saved — add your Anthropic key in Settings.');
-      return;
-    }
+    if (!hasApiKey) { Alert.alert('API key needed', 'Add your Anthropic API key in Settings.'); return; }
     setAnalyzing(true);
-    setAnalyzeError(null);
-    setAnalyzeOk(false);
-
-    const response = await analyzeWithClaude(uri);
-
-    if (!response.success) {
-      setAnalyzeError(response.error);
-      setAnalyzing(false);
-      return;
-    }
-
-    const result = response.data;
-    setForm(prev => ({
-      ...prev,
-      name:           result.name           || prev.name,
-      brand:          result.brand          || prev.brand,
-      description:    result.description    || prev.description,
-      colors:         Array.isArray(result.colors) ? result.colors : prev.colors,
-      color_season:   result.color_season   || prev.color_season,
-      category:       result.category       || prev.category,
-      occasions:      Array.isArray(result.occasions) ? result.occasions : prev.occasions,
-      size:           result.size           || prev.size,
-      fit:            result.fit            || prev.fit,
-      fabric:         result.fabric ? [result.fabric] : prev.fabric,
-      pattern:        result.pattern        || prev.pattern,
-      original_price: result.original_price ? String(result.original_price) : prev.original_price,
-    }));
-    setAnalyzeOk(true);
-    setAnalyzing(false);
-    // Clear success state after 4 seconds
-    setTimeout(() => setAnalyzeOk(false), 4000);
+    try {
+      const result = await analyzeWithClaude(uri);
+      if (result) {
+        setForm(prev => ({
+          ...prev,
+          name:           result.name          || prev.name,
+          brand:          result.brand         || prev.brand,
+          description:    result.description   || prev.description,
+          colors:         Array.isArray(result.colors) ? result.colors : prev.colors,
+          color_season:   result.color_season  || prev.color_season,
+          category:       result.category      || prev.category,
+          occasions:      Array.isArray(result.occasions) ? result.occasions : prev.occasions,
+          size:           result.size          || prev.size,
+          fit:            result.fit           || prev.fit,
+          fabric:         result.fabric ? [result.fabric] : prev.fabric,
+          original_price: result.original_price ? String(result.original_price) : prev.original_price,
+        }));
+        Alert.alert('Done!', 'Fields updated — review and save.');
+      }
+    } finally { setAnalyzing(false); }
   };
 
   const handleSave = async () => {
@@ -194,7 +175,6 @@ export default function ItemDetailScreen({ itemId, navigate }) {
             {saving ? <ActivityIndicator size="small" color={COLORS.cream} /> : <Text style={styles.saveTopBtnText}>Save</Text>}
           </TouchableOpacity>
         </View>
-
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.editScroll} keyboardShouldPersistTaps="handled">
           {/* Image */}
           <View style={styles.editImgContainer}>
@@ -202,51 +182,25 @@ export default function ItemDetailScreen({ itemId, navigate }) {
               ? <Image source={{ uri: imageUri }} style={styles.editImg} resizeMode="cover" />
               : <View style={styles.editImgPlaceholder}><Feather name="image" size={40} color={COLORS.ink3} /></View>}
           </View>
-
           <View style={styles.photoRow}>
             <TouchableOpacity style={styles.photoBtn} onPress={() => handlePickImage(true)}>
-              <Feather name="camera" size={16} color={COLORS.ink2} />
-              <Text style={styles.photoBtnText}>Retake</Text>
+              <Feather name="camera" size={16} color={COLORS.ink2} /><Text style={styles.photoBtnText}>Retake</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.photoBtn} onPress={() => handlePickImage(false)}>
-              <Feather name="image" size={16} color={COLORS.ink2} />
-              <Text style={styles.photoBtnText}>Choose photo</Text>
+              <Feather name="image" size={16} color={COLORS.ink2} /><Text style={styles.photoBtnText}>Choose photo</Text>
             </TouchableOpacity>
           </View>
-
-          {/* Claude analysis button / status — shown in place, replaces itself with feedback */}
-          {hasApiKey && imageUri && (
-            <View style={styles.analyzeContainer}>
-              {analyzing ? (
-                <View style={styles.analyzingBanner}>
-                  <ActivityIndicator size="small" color={COLORS.purple} />
-                  <Text style={styles.analyzingText}>Analyzing with Claude...</Text>
-                </View>
-              ) : analyzeOk ? (
-                <View style={styles.analyzeSuccessBanner}>
-                  <Feather name="check-circle" size={15} color={COLORS.sage} />
-                  <Text style={styles.analyzeSuccessText}>Fields updated — review and save</Text>
-                </View>
-              ) : analyzeError ? (
-                <View style={styles.analyzeErrorBanner}>
-                  <Feather name="alert-circle" size={15} color={COLORS.terra} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.analyzeErrorText}>{analyzeError}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => runClaudeAnalysis(imageUri)} style={styles.retryBtn}>
-                    <Text style={styles.retryBtnText}>Retry</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.reanalyzeBtn}
-                  onPress={() => runClaudeAnalysis(imageUri)}
-                >
-                  <Feather name="zap" size={14} color={COLORS.purple} />
-                  <Text style={styles.reanalyzeBtnText}>Analyze with Claude</Text>
-                </TouchableOpacity>
-              )}
+          {analyzing && (
+            <View style={styles.statusBanner}>
+              <ActivityIndicator size="small" color={COLORS.sage} />
+              <Text style={styles.statusText}>Analyzing...</Text>
             </View>
+          )}
+          {imageUri && !analyzing && hasApiKey && (
+            <TouchableOpacity style={styles.reanalyzeBtn} onPress={() => runClaudeAnalysis(imageUri)}>
+              <Feather name="zap" size={14} color={COLORS.purple} />
+              <Text style={styles.reanalyzeBtnText}>Re-run Claude analysis</Text>
+            </TouchableOpacity>
           )}
 
           <View style={styles.form}>
@@ -307,9 +261,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
         <View style={styles.laundryBanner}>
           <Feather name="wind" size={14} color={COLORS.gold} />
           <Text style={styles.laundryBannerText}>In the laundry — hidden from outfit builder</Text>
-          <TouchableOpacity onPress={handleLaundry}>
-            <Text style={styles.laundryBannerAction}>Mark clean</Text>
-          </TouchableOpacity>
+          <TouchableOpacity onPress={handleLaundry}><Text style={styles.laundryBannerAction}>Mark clean</Text></TouchableOpacity>
         </View>
       )}
 
@@ -325,6 +277,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
           <Text style={styles.name}>{item.name}</Text>
           {item.description ? <Text style={styles.description}>{item.description}</Text> : null}
 
+          {/* Pills */}
           <View style={styles.pills}>
             {season && (
               <View style={[styles.pill, { backgroundColor: season.bg }]}>
@@ -350,11 +303,12 @@ export default function ItemDetailScreen({ itemId, navigate }) {
             </View>
           </View>
 
+          {/* Details */}
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Details</Text>
-            {item.category       ? <AttrRow label="Category"       value={item.category} /> : null}
-            {item.size           ? <AttrRow label="Size"           value={item.size} /> : null}
-            {item.fit            ? <AttrRow label="Fit"            value={item.fit} /> : null}
+            {item.category      ? <AttrRow label="Category"       value={item.category} /> : null}
+            {item.size          ? <AttrRow label="Size"           value={item.size} /> : null}
+            {item.fit           ? <AttrRow label="Fit"            value={item.fit} /> : null}
             {item.original_price ? <AttrRow label="Original price" value={currency + item.original_price} /> : null}
             <AttrRow label="Cost per wear" value={costPerWear} highlight={!cpwOver} warn={cpwOver} />
             {cpwOver && (
@@ -365,6 +319,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
             )}
           </View>
 
+          {/* Fabric */}
           {itemFabrics.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Fabric</Text>
@@ -374,6 +329,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
             </View>
           )}
 
+          {/* Occasions */}
           {itemOccasions.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Occasions</Text>
@@ -383,6 +339,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
             </View>
           )}
 
+          {/* Notes */}
           {(item.note1 || item.note2 || item.note3) && (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Notes</Text>
@@ -392,6 +349,7 @@ export default function ItemDetailScreen({ itemId, navigate }) {
             </View>
           )}
 
+          {/* Custom fields */}
           {customFields.filter(f => item[f.key]).length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>More details</Text>
@@ -422,61 +380,52 @@ function AttrRow({ label, value, highlight, warn }) {
 }
 
 const styles = StyleSheet.create({
-  container:            { flex: 1, backgroundColor: COLORS.cream },
-  topBar:               { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SPACING.xl, paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
-  topBarRight:          { flexDirection: 'row', gap: 8 },
-  iconBtn:              { width: 38, height: 38, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.border, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center' },
-  editTitle:            { fontSize: 16, fontWeight: '600', color: COLORS.ink },
-  saveTopBtn:           { backgroundColor: COLORS.ink, borderRadius: RADIUS.full, paddingHorizontal: 18, paddingVertical: 8 },
-  saveTopBtnText:       { fontSize: 14, fontWeight: '600', color: COLORS.cream },
-  laundryBanner:        { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.goldLt, paddingHorizontal: SPACING.xl, paddingVertical: 10 },
-  laundryBannerText:    { flex: 1, fontSize: 12, fontWeight: '500', color: COLORS.gold },
-  laundryBannerAction:  { fontSize: 12, fontWeight: '600', color: COLORS.ink, textDecorationLine: 'underline' },
-  scroll:               { paddingBottom: 120 },
-  imgContainer:         { marginHorizontal: SPACING.xl, borderRadius: RADIUS.xl, overflow: 'hidden', backgroundColor: COLORS.white, aspectRatio: 1, borderWidth: 0.5, borderColor: COLORS.border },
-  imgFull:              { width: '100%', height: '100%' },
-  imgPlaceholder:       { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0EDE8' },
-  body:                 { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg },
-  brand:                { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 1.5, marginBottom: 4 },
-  name:                 { fontSize: 24, fontWeight: '600', color: COLORS.ink, lineHeight: 30 },
-  description:          { fontSize: 14, color: COLORS.ink2, marginTop: 6, lineHeight: 20 },
-  pills:                { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
-  pill:                 { paddingHorizontal: 12, paddingVertical: 5, borderRadius: RADIUS.full },
-  pillText:             { fontSize: 12, fontWeight: '500' },
-  section:              { marginTop: 24 },
-  sectionLabel:         { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8 },
-  attrRow:              { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: COLORS.border },
-  attrLabel:            { fontSize: 13, color: COLORS.ink2 },
-  attrValue:            { fontSize: 13, color: COLORS.ink },
-  tagRow:               { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tag:                  { paddingHorizontal: 12, paddingVertical: 5, borderRadius: RADIUS.full, backgroundColor: COLORS.sageLt },
-  tagText:              { fontSize: 12, fontWeight: '500', color: COLORS.sageDk },
-  noteText:             { fontSize: 13, color: COLORS.ink2, lineHeight: 20, marginBottom: 4 },
-  cpwWarn:              { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, backgroundColor: COLORS.terraLt, borderRadius: RADIUS.sm, padding: 8 },
-  cpwWarnText:          { fontSize: 12, color: COLORS.terra, fontWeight: '500' },
-  footer:               { position: 'absolute', bottom: 0, left: 0, right: 0, padding: SPACING.xl, paddingBottom: 32, backgroundColor: COLORS.cream, borderTopWidth: 0.5, borderTopColor: COLORS.border },
-  wearBtn:              { backgroundColor: COLORS.ink, borderRadius: RADIUS.lg, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  wearBtnText:          { fontSize: 15, fontWeight: '500', color: COLORS.cream },
-  // Edit mode
-  editScroll:           { paddingBottom: 60 },
-  editImgContainer:     { marginHorizontal: SPACING.xl, borderRadius: RADIUS.xl, overflow: 'hidden', backgroundColor: COLORS.white, aspectRatio: 1, borderWidth: 0.5, borderColor: COLORS.border, marginBottom: SPACING.md },
-  editImg:              { width: '100%', height: '100%' },
-  editImgPlaceholder:   { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0EDE8' },
-  photoRow:             { flexDirection: 'row', gap: 10, paddingHorizontal: SPACING.xl, marginBottom: SPACING.md },
-  photoBtn:             { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: COLORS.white, borderRadius: RADIUS.md, borderWidth: 0.5, borderColor: COLORS.borderMed, paddingVertical: 10 },
-  photoBtnText:         { fontSize: 13, fontWeight: '500', color: COLORS.ink2 },
-  // Claude analysis area
-  analyzeContainer:     { marginHorizontal: SPACING.xl, marginBottom: SPACING.md },
-  reanalyzeBtn:         { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.purpleLt, borderRadius: RADIUS.md, padding: 13 },
-  reanalyzeBtnText:     { fontSize: 13, fontWeight: '600', color: COLORS.purple, flex: 1 },
-  analyzingBanner:      { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.purpleLt, borderRadius: RADIUS.md, padding: 13 },
-  analyzingText:        { fontSize: 13, fontWeight: '500', color: COLORS.purple },
-  analyzeSuccessBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.sageLt, borderRadius: RADIUS.md, padding: 13 },
-  analyzeSuccessText:   { fontSize: 13, fontWeight: '500', color: COLORS.sageDk, flex: 1 },
-  analyzeErrorBanner:   { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.terraLt, borderRadius: RADIUS.md, padding: 13 },
-  analyzeErrorText:     { fontSize: 12, fontWeight: '500', color: COLORS.terra },
-  retryBtn:             { backgroundColor: COLORS.terra, borderRadius: RADIUS.sm, paddingHorizontal: 12, paddingVertical: 6 },
-  retryBtnText:         { fontSize: 12, fontWeight: '600', color: COLORS.cream },
-  form:                 { paddingHorizontal: SPACING.xl },
-  sectionDivider:       { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10, marginTop: 8, paddingTop: 16, borderTopWidth: 0.5, borderTopColor: COLORS.border },
+  container:          { flex: 1, backgroundColor: COLORS.cream },
+  topBar:             { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SPACING.xl, paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
+  topBarRight:        { flexDirection: 'row', gap: 8 },
+  iconBtn:            { width: 38, height: 38, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.border, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center' },
+  editTitle:          { fontSize: 16, fontWeight: '600', color: COLORS.ink },
+  saveTopBtn:         { backgroundColor: COLORS.ink, borderRadius: RADIUS.full, paddingHorizontal: 18, paddingVertical: 8 },
+  saveTopBtnText:     { fontSize: 14, fontWeight: '600', color: COLORS.cream },
+  laundryBanner:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.goldLt, paddingHorizontal: SPACING.xl, paddingVertical: 10 },
+  laundryBannerText:  { flex: 1, fontSize: 12, fontWeight: '500', color: COLORS.gold },
+  laundryBannerAction:{ fontSize: 12, fontWeight: '600', color: COLORS.ink, textDecorationLine: 'underline' },
+  scroll:             { paddingBottom: 120 },
+  imgContainer:       { marginHorizontal: SPACING.xl, borderRadius: RADIUS.xl, overflow: 'hidden', backgroundColor: COLORS.white, aspectRatio: 1, borderWidth: 0.5, borderColor: COLORS.border },
+  imgFull:            { width: '100%', height: '100%' },
+  imgPlaceholder:     { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0EDE8' },
+  body:               { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg },
+  brand:              { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 1.5, marginBottom: 4 },
+  name:               { fontSize: 24, fontWeight: '600', color: COLORS.ink, lineHeight: 30 },
+  description:        { fontSize: 14, color: COLORS.ink2, marginTop: 6, lineHeight: 20 },
+  pills:              { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
+  pill:               { paddingHorizontal: 12, paddingVertical: 5, borderRadius: RADIUS.full },
+  pillText:           { fontSize: 12, fontWeight: '500' },
+  section:            { marginTop: 24 },
+  sectionLabel:       { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8 },
+  attrRow:            { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: COLORS.border },
+  attrLabel:          { fontSize: 13, color: COLORS.ink2 },
+  attrValue:          { fontSize: 13, color: COLORS.ink },
+  tagRow:             { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tag:                { paddingHorizontal: 12, paddingVertical: 5, borderRadius: RADIUS.full, backgroundColor: COLORS.sageLt },
+  tagText:            { fontSize: 12, fontWeight: '500', color: COLORS.sageDk },
+  noteText:           { fontSize: 13, color: COLORS.ink2, lineHeight: 20, marginBottom: 4 },
+  cpwWarn:            { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, backgroundColor: COLORS.terraLt, borderRadius: RADIUS.sm, padding: 8 },
+  cpwWarnText:        { fontSize: 12, color: COLORS.terra, fontWeight: '500' },
+  footer:             { position: 'absolute', bottom: 0, left: 0, right: 0, padding: SPACING.xl, paddingBottom: 32, backgroundColor: COLORS.cream, borderTopWidth: 0.5, borderTopColor: COLORS.border },
+  wearBtn:            { backgroundColor: COLORS.ink, borderRadius: RADIUS.lg, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  wearBtnText:        { fontSize: 15, fontWeight: '500', color: COLORS.cream },
+  editScroll:         { paddingBottom: 60 },
+  editImgContainer:   { marginHorizontal: SPACING.xl, borderRadius: RADIUS.xl, overflow: 'hidden', backgroundColor: COLORS.white, aspectRatio: 1, borderWidth: 0.5, borderColor: COLORS.border, marginBottom: SPACING.md },
+  editImg:            { width: '100%', height: '100%' },
+  editImgPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0EDE8' },
+  photoRow:           { flexDirection: 'row', gap: 10, paddingHorizontal: SPACING.xl, marginBottom: SPACING.md },
+  photoBtn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: COLORS.white, borderRadius: RADIUS.md, borderWidth: 0.5, borderColor: COLORS.borderMed, paddingVertical: 10 },
+  photoBtnText:       { fontSize: 13, fontWeight: '500', color: COLORS.ink2 },
+  statusBanner:       { marginHorizontal: SPACING.xl, marginBottom: SPACING.md, backgroundColor: COLORS.sageLt, borderRadius: RADIUS.md, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  statusText:         { fontSize: 12, fontWeight: '500', color: COLORS.sageDk },
+  reanalyzeBtn:       { marginHorizontal: SPACING.xl, marginBottom: SPACING.md, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.purpleLt, borderRadius: RADIUS.md, padding: 12 },
+  reanalyzeBtnText:   { fontSize: 13, fontWeight: '500', color: COLORS.purple },
+  form:               { paddingHorizontal: SPACING.xl },
+  sectionDivider:     { fontSize: 11, fontWeight: '500', color: COLORS.ink3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10, marginTop: 8, paddingTop: 16, borderTopWidth: 0.5, borderTopColor: COLORS.border },
 });

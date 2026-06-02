@@ -1,294 +1,107 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View, Text, StyleSheet, TouchableOpacity, SafeAreaView,
-  StatusBar, Platform, ActivityIndicator,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS, FONTS, SPACING, RADIUS } from './theme';
-import { getSettings, saveSettings, getStats, isFirstLaunch, markLaunched } from './database';
+import { useEffect, useState } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 
-import DriveScreen from './DriveScreen';
-import LogScreen from './LogScreen';
-import SkillsScreen from './SkillsScreen';
-import JourneyScreen from './JourneyScreen';
-import SettingsScreen from './SettingsScreen';
+import ClosetScreen      from './ClosetScreen';
+import ItemDetailScreen  from './ItemDetailScreen';
+import AddItemScreen     from './AddItemScreen';
+import OutfitScreen      from './OutfitScreen';
+import StatsScreen       from './StatsScreen';
+import SettingsScreen    from './SettingsScreen';
+import WishlistScreen    from './WishlistScreen';
+import FavoritesScreen   from './FavoritesScreen';
 
-const TABS = [
-  { id: 'drive', label: 'Drive', icon: 'car-outline', iconActive: 'car' },
-  { id: 'log', label: 'Log', icon: 'time-outline', iconActive: 'time' },
-  { id: 'skills', label: 'Skills', icon: 'barbell-outline', iconActive: 'barbell' },
-  { id: 'journey', label: 'Unlock', icon: 'trophy-outline', iconActive: 'trophy' },
-  { id: 'settings', label: 'Settings', icon: 'settings-outline', iconActive: 'settings' },
-];
-
-// Little radio easter egg — tap the header icon 3x to unlock a fun message
-const RADIO_MESSAGES = [
-  "📻 I said DON'T touch it.",
-  "📻 Hands on the wheel!!",
-  "📻 That's a 10-minute silence penalty.",
-  "📻 The DJ is NOT impressed.",
-  "📻 Focus on the road, not the vibes.",
-];
+import { initDB } from './database';
+import { COLORS } from './theme';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('drive');
-  const [settings, setSettings] = useState(null);
-  const [stats, setStats] = useState({ totalHours: 0, nightHours: 0 });
-  const [loading, setLoading] = useState(true);
-  const [tabVersion, setTabVersion] = useState(0);
-  const [radioTaps, setRadioTaps] = useState(0);
-  const [radioMsg, setRadioMsg] = useState('');
+  const [dbReady, setDbReady]   = useState(false);
+  const [screen, setScreen]     = useState('Closet');
+  const [detailId, setDetailId] = useState(null);
 
   useEffect(() => {
-    init();
+    initDB().then(() => setDbReady(true)).catch(() => setDbReady(true));
   }, []);
 
-  const init = async () => {
-    const first = await isFirstLaunch();
-    if (first) await markLaunched();
-    const [s, st] = await Promise.all([getSettings(), getStats()]);
-    setSettings(s);
-    setStats(st);
-    setLoading(false);
-  };
-
-  const handleTabPress = (tabId) => {
-    setActiveTab(tabId);
-    setTabVersion(v => v + 1);
-  };
-
-  const handleSettingsUpdate = useCallback(async (updated) => {
-    await saveSettings(updated);
-    setSettings(updated);
-  }, []);
-
-  const handleStatsUpdate = useCallback((updated) => {
-    setStats(updated);
-  }, []);
-
-  const handleRadioTap = () => {
-    const next = radioTaps + 1;
-    setRadioTaps(next);
-    if (next >= 3) {
-      const msg = RADIO_MESSAGES[Math.floor(Math.random() * RADIO_MESSAGES.length)];
-      setRadioMsg(msg);
-      setRadioTaps(0);
-      setTimeout(() => setRadioMsg(''), 2500);
-    }
-  };
-
-  if (loading) {
+  if (!dbReady) {
     return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingRadio}>📻</Text>
-        <Text style={styles.loadingTitle}>Don't Touch The Radio</Text>
-        <Text style={styles.loadingText}>Loading your drive log…</Text>
-        <ActivityIndicator size="small" color={COLORS.primaryMid} style={{ marginTop: SPACING.md }} />
+      <View style={styles.loading}>
+        <Text style={styles.loadingText}>myfit</Text>
+        <Text style={styles.loadingSub}>loading your closet...</Text>
       </View>
     );
   }
 
+  const navigate = (dest, params) => {
+    if (dest === 'ItemDetail' && params?.itemId) setDetailId(params.itemId);
+    if (dest === 'Closet') setDetailId(null);
+    setScreen(dest);
+  };
+
   const renderScreen = () => {
-    switch (activeTab) {
-      case 'drive':
-        return (
-          <DriveScreen
-            key={`drive-${tabVersion}`}
-            settings={settings}
-            stats={stats}
-            onStatsUpdate={handleStatsUpdate}
-          />
-        );
-      case 'log':
-        return (
-          <LogScreen
-            key={`log-${tabVersion}`}
-            settings={settings}
-            stats={stats}
-            onStatsUpdate={handleStatsUpdate}
-          />
-        );
-      case 'skills':
-        return (
-          <SkillsScreen
-            key={`skills-${tabVersion}`}
-            settings={settings}
-            onSettingsUpdate={handleSettingsUpdate}
-          />
-        );
-      case 'journey':
-        return (
-          <JourneyScreen
-            key={`journey-${tabVersion}`}
-            stats={stats}
-          />
-        );
-      case 'settings':
-        return (
-          <SettingsScreen
-            key={`settings-${tabVersion}`}
-            settings={settings}
-            onSettingsUpdate={handleSettingsUpdate}
-          />
-        );
-      default:
-        return null;
-    }
+    if (screen === 'ItemDetail')  return <ItemDetailScreen itemId={detailId} navigate={navigate} />;
+    if (screen === 'Add')         return <AddItemScreen navigate={navigate} />;
+    if (screen === 'Outfit')      return <OutfitScreen navigate={navigate} />;
+    if (screen === 'Favorites')   return <FavoritesScreen navigate={navigate} />;
+    if (screen === 'Stats')       return <StatsScreen navigate={navigate} />;
+    if (screen === 'Settings')    return <SettingsScreen navigate={navigate} />;
+    if (screen === 'Wishlist')    return <WishlistScreen navigate={navigate} />;
+    if (screen === 'Laundry')     return <ClosetScreen navigate={navigate} laundryMode />;
+    return <ClosetScreen navigate={navigate} />;
   };
 
-  const screenTitles = {
-    drive: settings?.driverName ? `Hi, ${settings.driverName} 👋` : "Don't Touch The Radio",
-    log: 'Hours Log',
-    skills: 'Skills',
-    journey: 'Unlock Your License',
-    settings: 'Settings',
-  };
+  // Tabs: Closet | Outfit | Favorites | + | Settings
+  const tabs = [
+    { name: 'Closet',    icon: 'grid' },
+    { name: 'Outfit',    icon: 'layers' },
+    { name: 'Favorites', icon: 'heart' },
+    { name: 'Add',       icon: 'plus-circle' },
+    { name: 'Settings',  icon: 'settings' },
+  ];
 
-  const pct = Math.min(100, Math.round(((stats?.totalHours || 0) / (settings?.requiredTotal || 45)) * 100));
+  const activeTab =
+    ['ItemDetail', 'Closet', 'Laundry'].includes(screen) ? 'Closet'
+    : screen === 'Outfit'    ? 'Outfit'
+    : screen === 'Favorites' ? 'Favorites'
+    : screen === 'Add'       ? 'Add'
+    : ['Settings', 'Stats', 'Wishlist'].includes(screen) ? 'Settings'
+    : 'Closet';
 
   return (
-    <SafeAreaView style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleRadioTap} activeOpacity={0.7} style={styles.headerLeft}>
-          <Text style={styles.headerRadioIcon}>📻</Text>
-          <Text style={styles.headerTitle}>{screenTitles[activeTab]}</Text>
-        </TouchableOpacity>
-        {activeTab === 'drive' && (
-          <View style={styles.headerBadge}>
-            <Text style={styles.headerBadgeText}>{pct}% there</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Easter egg toast */}
-      {!!radioMsg && (
-        <View style={styles.radioToast}>
-          <Text style={styles.radioToastText}>{radioMsg}</Text>
-        </View>
-      )}
-
-      {/* Screen */}
-      <View style={styles.screenContainer}>
-        {renderScreen()}
-      </View>
-
-      {/* Tab bar */}
+    <View style={styles.container}>
+      <View style={styles.screenArea}>{renderScreen()}</View>
       <View style={styles.tabBar}>
-        {TABS.map(tab => {
-          const active = activeTab === tab.id;
+        {tabs.map(tab => {
+          const active = activeTab === tab.name;
+          const isAdd  = tab.name === 'Add';
           return (
-            <TouchableOpacity
-              key={tab.id}
-              style={styles.tab}
-              onPress={() => handleTabPress(tab.id)}
-              activeOpacity={0.7}
-            >
-              {active && <View style={styles.tabIndicator} />}
-              <Ionicons
-                name={active ? tab.iconActive : tab.icon}
-                size={22}
-                color={active ? COLORS.primaryMid : COLORS.tabInactive}
+            <View key={tab.name} style={styles.tabItem}>
+              <Feather
+                name={tab.icon}
+                size={isAdd ? 26 : 22}
+                color={active ? COLORS.ink : isAdd ? COLORS.ink2 : COLORS.ink3}
+                onPress={() => navigate(tab.name)}
               />
-              <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
+              {!isAdd && (
+                <Text style={[styles.tabLabel, { color: active ? COLORS.ink : COLORS.ink3 }]}>
+                  {tab.name}
+                </Text>
+              )}
+            </View>
           );
         })}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.primary },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primary,
-  },
-  loadingRadio: { fontSize: 52, marginBottom: SPACING.md },
-  loadingTitle: {
-    fontSize: 22,
-    fontWeight: FONTS.bold,
-    color: COLORS.white,
-    marginBottom: SPACING.xs,
-  },
-  loadingText: { fontSize: 14, color: 'rgba(255,255,255,0.6)' },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: 13,
-    backgroundColor: COLORS.primary,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-  },
-  headerRadioIcon: { fontSize: 20 },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: FONTS.semibold,
-    color: COLORS.white,
-    flex: 1,
-  },
-  headerBadge: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: RADIUS.full,
-  },
-  headerBadgeText: {
-    fontSize: 12,
-    fontWeight: FONTS.semibold,
-    color: COLORS.white,
-  },
-  radioToast: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
-  },
-  radioToastText: {
-    fontSize: 14,
-    fontWeight: FONTS.semibold,
-    color: COLORS.white,
-    letterSpacing: 0.2,
-  },
-  screenContainer: { flex: 1, backgroundColor: COLORS.bg },
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.bgCard,
-    borderTopWidth: 0.5,
-    borderTopColor: COLORS.border,
-    paddingBottom: Platform.OS === 'ios' ? 16 : 4,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 6,
-    paddingBottom: 4,
-    position: 'relative',
-  },
-  tabIndicator: {
-    position: 'absolute',
-    top: 0,
-    width: 28,
-    height: 2.5,
-    backgroundColor: COLORS.primaryMid,
-    borderRadius: RADIUS.full,
-  },
-  tabLabel: { fontSize: 10, color: COLORS.tabInactive, marginTop: 3, fontWeight: FONTS.medium },
-  tabLabelActive: { color: COLORS.primaryMid },
+  container:   { flex: 1, backgroundColor: COLORS.cream },
+  screenArea:  { flex: 1 },
+  loading:     { flex: 1, backgroundColor: COLORS.cream, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  loadingText: { fontSize: 32, fontWeight: '500', color: COLORS.ink, letterSpacing: -1 },
+  loadingSub:  { fontSize: 13, color: COLORS.ink3 },
+  tabBar:      { flexDirection: 'row', backgroundColor: COLORS.cream, borderTopWidth: 0.5, borderTopColor: COLORS.border, paddingTop: 10, paddingBottom: 24 },
+  tabItem:     { flex: 1, alignItems: 'center', gap: 3 },
+  tabLabel:    { fontSize: 10, fontWeight: '500' },
 });
