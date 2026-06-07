@@ -96,6 +96,12 @@ export default function SettingsScreen({ navigate }) {
   const [backingUp, setBackingUp]     = useState(false);
   const [restoring, setRestoring]     = useState(false);
 
+  const toggleSeason = (seasonName) => {
+    const hidden = new Set(settings.hiddenSeasons || []);
+    hidden.has(seasonName) ? hidden.delete(seasonName) : hidden.add(seasonName);
+    update({ hiddenSeasons: [...hidden] });
+  };
+
   // ── BACKUP ──────────────────────────────────────────────────────────────────
   const handleBackup = async () => {
     setBackingUp(true);
@@ -195,10 +201,6 @@ export default function SettingsScreen({ navigate }) {
     } finally {
       setRestoring(false);
     }
-  };
-    const hidden = new Set(settings.hiddenSeasons || []);
-    hidden.has(seasonName) ? hidden.delete(seasonName) : hidden.add(seasonName);
-    update({ hiddenSeasons: [...hidden] });
   };
 
   if (!settings) return <View style={styles.container} />;
