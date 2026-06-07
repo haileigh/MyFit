@@ -10,7 +10,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#FF6B6B"
     },
-    "sdkVersion": "52.0.0",
+    "sdkVersion": "56.0.0",
     "android": {
       "package": "com.yourname.myfit",
       "versionCode": 1,
