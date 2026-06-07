@@ -20,24 +20,32 @@ export async function deleteApiKey() {
 }
 
 // ── Claude image analysis ──────────────────────────────────────────────────────
+// Returns { success: true, data: {...} } or { success: false, error: 'message' }
 export async function analyzeWithClaude(imageUri) {
   const apiKey = await getApiKey();
-  if (!apiKey) return null;
+  if (!apiKey) return { success: false, error: 'No API key saved. Add your Anthropic key in Settings.' };
 
+  // Step 1: read image file
+  let base64;
   try {
-    // Use expo-file-system to read the image as base64 — FileReader doesn't
-    // exist in React Native, so this is the correct approach in Expo projects.
-    const base64 = await FileSystem.readAsStringAsync(imageUri, {
+    base64 = await FileSystem.readAsStringAsync(imageUri, {
       encoding: FileSystem.EncodingType.Base64,
     });
+  } catch (e) {
+    return {
+      success: false,
+      error: 'Could not read image file. Try retaking or re-choosing the photo.',
+    };
+  }
 
-    // Determine media type from URI extension; default to jpeg
-    const ext = imageUri.split('.').pop()?.toLowerCase();
-    const mediaType = ext === 'png' ? 'image/png'
-      : ext === 'webp' ? 'image/webp'
-      : 'image/jpeg';
+  // Determine media type from URI extension
+  const ext       = imageUri.split('?')[0].split('.').pop()?.toLowerCase();
+  const mediaType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+  // Step 2: call Anthropic API
+  let res;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -45,7 +53,7 @@ export async function analyzeWithClaude(imageUri) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 1024,
         messages: [{
           role: 'user',
@@ -70,19 +78,34 @@ export async function analyzeWithClaude(imageUri) {
         }],
       }),
     });
-
-    const data = await res.json();
-
-    // Surface any API-level errors clearly
-    if (data.error) {
-      console.error('Anthropic API error:', data.error);
-      return null;
-    }
-
-    const text = data.content?.[0]?.text || '{}';
-    return JSON.parse(text.replace(/```json|```/g, '').trim());
   } catch (e) {
-    console.error('Claude analysis failed:', e);
-    return null;
+    return { success: false, error: 'Network error — check your internet connection and try again.' };
+  }
+
+  // Step 3: parse response
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    return { success: false, error: `Server returned an unexpected response (HTTP ${res.status}).` };
+  }
+
+  // Step 4: check for API-level errors
+  if (data.error) {
+    const msg = data.error.message || JSON.stringify(data.error);
+    // Make common errors human-readable
+    if (res.status === 401) return { success: false, error: 'Invalid API key — check your key in Settings.' };
+    if (res.status === 429) return { success: false, error: 'Rate limit reached — wait a moment and try again.' };
+    if (res.status === 400) return { success: false, error: `Bad request: ${msg}` };
+    return { success: false, error: `API error: ${msg}` };
+  }
+
+  // Step 5: parse JSON from Claude's text response
+  try {
+    const text   = data.content?.[0]?.text || '{}';
+    const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+    return { success: true, data: parsed };
+  } catch {
+    return { success: false, error: 'Claude returned an unexpected format. Try again.' };
   }
 }

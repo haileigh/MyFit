@@ -19,7 +19,7 @@ export const COLORS = {
 };
 
 export const SPACING = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 28 };
-export const RADIUS = { sm: 8, md: 12, lg: 16, xl: 20, full: 999 };
+export const RADIUS  = { sm: 8, md: 12, lg: 16, xl: 20, full: 999 };
 
 export const SEASONS = {
   'Deep Winter':   { bg: '#2D2540', text: '#C8B8E8', short: 'DW' },
@@ -36,9 +36,34 @@ export const SEASONS = {
   'True Summer':   { bg: '#D8E8F0', text: '#1E5A7A', short: 'T2' },
 };
 
+// Full category list — includes all new additions
 export const CATEGORIES = [
-  'Tops', 'Bottoms', 'Skirts', 'Outerwear', 'Shoes',
-  'Dresses', 'Accessories', 'Bags', 'Shorts', 'Pajamas', 'Robes', 'Other',
+  'Tops', 'Long Sleeve', 'Short Sleeve',
+  'Bottoms', 'Pants', 'Skirts', 'Shorts', 'Skort',
+  'Dresses', 'Outerwear', 'Jacket',
+  'Shoes', 'Accessories', 'Bags',
+  'Pajamas', 'Robes', 'Other',
+];
+
+// Core categories appear in the main outfit collage
+export const CORE_CATEGORIES = new Set([
+  'Tops', 'Long Sleeve', 'Short Sleeve',
+  'Bottoms', 'Pants', 'Skirts', 'Shorts', 'Skort',
+  'Dresses',
+]);
+
+// Outerwear categories — included only when weather toggle is "cold"
+export const OUTERWEAR_CATEGORIES = new Set(['Outerwear', 'Jacket']);
+
+// Accessory categories — shown in the strip below the collage
+export const ACCESSORY_CATEGORIES = new Set(['Shoes', 'Bags', 'Accessories']);
+
+// Stack order for core items in the collage (top → bottom)
+export const CORE_STACK_ORDER = [
+  'Outerwear', 'Jacket',
+  'Long Sleeve', 'Short Sleeve', 'Tops',
+  'Dresses',
+  'Skirts', 'Skort', 'Bottoms', 'Pants', 'Shorts',
 ];
 
 export const FIT_OPTIONS = ['Loose', 'Just right', 'Tight', 'I should really get rid of it'];

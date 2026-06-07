@@ -190,3 +190,12 @@ export async function deleteLikedOutfit(id) {
   const outfits = await getLikedOutfits();
   await AsyncStorage.setItem(LIKED_OUTFITS_KEY, JSON.stringify(outfits.filter(o => o.id !== id)));
 }
+
+// ── Backup / Restore helpers ────────────────────────────────────────────────
+export async function clearAllItems() {
+  await AsyncStorage.removeItem('myfit_items');
+}
+
+export async function saveLikedOutfits(outfits) {
+  await AsyncStorage.setItem('myfit_liked_outfits', JSON.stringify(outfits));
+}
