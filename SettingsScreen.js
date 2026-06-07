@@ -1,20 +1,25 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, TextInput, Alert, Switch,
+  SafeAreaView, TextInput, Alert, Switch, ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { getSettings, saveSettings } from './database';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import * as DocumentPicker from 'expo-document-picker';
+import { getSettings, saveSettings, getAllItems, clearAllItems, insertItem, getLikedOutfits, saveLikedOutfits } from './database';
 import { getApiKey, saveApiKey, deleteApiKey } from './api';
 import { COLORS, SPACING, RADIUS, SEASONS } from './theme';
 
 export default function SettingsScreen({ navigate }) {
-  const [settings, setSettings]     = useState(null);
-  const [dirty, setDirty]           = useState(false);
-  const [apiKey, setApiKey]         = useState('');
+  const [settings, setSettings]         = useState(null);
+  const [dirty, setDirty]               = useState(false);
+  const [apiKey, setApiKey]             = useState('');
   const [apiKeyStored, setApiKeyStored] = useState(false);
-  const [showKey, setShowKey]       = useState(false);
-  const [savingKey, setSavingKey]   = useState(false);
+  const [showKey, setShowKey]           = useState(false);
+  const [savingKey, setSavingKey]       = useState(false);
+  const [backingUp, setBackingUp]       = useState(false);
+  const [restoring, setRestoring]       = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -23,7 +28,6 @@ export default function SettingsScreen({ navigate }) {
     setSettings(s);
     setDirty(false);
     setApiKeyStored(!!storedKey);
-    // Don't pre-fill the field — user should re-enter to update
   };
 
   const update = useCallback((patch) => {
@@ -65,7 +69,7 @@ export default function SettingsScreen({ navigate }) {
     ]);
   };
 
-  // Custom fields
+  // ── Custom fields ────────────────────────────────────────────────────────────
   const addCustomField = () => {
     const fields = settings.customFields || [];
     if (fields.length >= 6) { Alert.alert('Maximum reached', 'You can have up to 6 custom fields.'); return; }
@@ -89,11 +93,88 @@ export default function SettingsScreen({ navigate }) {
     update({ customFields: fields });
   };
 
-  // Season toggles
+  // ── Season toggles ───────────────────────────────────────────────────────────
   const toggleSeason = (seasonName) => {
     const hidden = new Set(settings.hiddenSeasons || []);
     hidden.has(seasonName) ? hidden.delete(seasonName) : hidden.add(seasonName);
     update({ hiddenSeasons: [...hidden] });
+  };
+
+  // ── Backup ───────────────────────────────────────────────────────────────────
+  const handleBackup = async () => {
+    setBackingUp(true);
+    try {
+      const [items, s, liked] = await Promise.all([getAllItems(), getSettings(), getLikedOutfits()]);
+
+      const manifest = {
+        version:    1,
+        created_at: new Date().toISOString(),
+        settings:   s,
+        items:      items,
+        liked:      liked,
+        // API key intentionally excluded for security
+      };
+
+      const backupPath = FileSystem.documentDirectory + `myfit_backup_${Date.now()}.json`;
+      await FileSystem.writeAsStringAsync(backupPath, JSON.stringify(manifest));
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(backupPath, { mimeType: 'application/json', dialogTitle: 'Save your MyFit backup' });
+      } else {
+        Alert.alert('Backup saved', `Saved to: ${backupPath}`);
+      }
+    } catch (e) {
+      Alert.alert('Backup failed', 'Could not create backup: ' + e.message);
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
+  // ── Restore ──────────────────────────────────────────────────────────────────
+  const handleRestore = () => {
+    Alert.alert(
+      'Restore from backup',
+      'This will replace all current items and settings. Your API key will not be affected. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Choose backup file', onPress: doRestore },
+      ]
+    );
+  };
+
+  const doRestore = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
+      if (result.canceled) return;
+
+      setRestoring(true);
+      const file = result.assets[0];
+      const raw  = await FileSystem.readAsStringAsync(file.uri);
+      const manifest = JSON.parse(raw);
+
+      if (!manifest.version || !manifest.items) {
+        Alert.alert('Invalid backup', 'This file does not appear to be a valid MyFit backup.');
+        setRestoring(false);
+        return;
+      }
+
+      if (manifest.settings) await saveSettings(manifest.settings);
+
+      await clearAllItems();
+      for (const item of manifest.items) {
+        await insertItem(item);
+      }
+
+      if (manifest.liked) await saveLikedOutfits(manifest.liked);
+
+      await load();
+      Alert.alert('Restored!', `${manifest.items.length} items restored. Note: photos will need to be re-added separately.`);
+    } catch (e) {
+      Alert.alert('Restore failed', 'Could not restore backup: ' + e.message);
+    } finally {
+      setRestoring(false);
+    }
   };
 
   if (!settings) return <View style={styles.container} />;
@@ -110,7 +191,8 @@ export default function SettingsScreen({ navigate }) {
         <TouchableOpacity
           onPress={handleSave}
           style={[styles.saveBtn, !dirty && styles.saveBtnDisabled]}
-          disabled={!dirty}>
+          disabled={!dirty}
+        >
           <Text style={[styles.saveBtnText, !dirty && { color: COLORS.ink3 }]}>Save</Text>
         </TouchableOpacity>
       </View>
@@ -154,10 +236,7 @@ export default function SettingsScreen({ navigate }) {
         </View>
 
         {/* ANTHROPIC API KEY */}
-        <SectionHeader
-          label="AI auto-fill"
-          sub="Your key is stored securely on this device only"
-        />
+        <SectionHeader label="AI auto-fill" sub="Your key is stored securely on this device only" />
         <View style={styles.card}>
           {apiKeyStored ? (
             <View style={styles.row}>
@@ -194,7 +273,8 @@ export default function SettingsScreen({ navigate }) {
               <TouchableOpacity
                 style={[styles.saveKeyBtn, savingKey && { opacity: 0.6 }]}
                 onPress={handleSaveApiKey}
-                disabled={savingKey}>
+                disabled={savingKey}
+              >
                 <Text style={styles.saveKeyBtnText}>{savingKey ? 'Saving…' : 'Save key'}</Text>
               </TouchableOpacity>
             </View>
@@ -250,7 +330,32 @@ export default function SettingsScreen({ navigate }) {
           ))}
         </View>
 
-        {/* STATS */}
+        {/* BACKUP & RESTORE */}
+        <SectionHeader label="Backup & Restore" sub="Export your closet to Files. API key is never included." />
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.row} onPress={handleBackup} disabled={backingUp}>
+            <Feather name="download" size={18} color={COLORS.ink2} style={{ marginRight: 12 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>Export backup</Text>
+              <Text style={styles.rowSub}>Save all items and settings to a file</Text>
+            </View>
+            {backingUp
+              ? <ActivityIndicator size="small" color={COLORS.sage} />
+              : <Feather name="chevron-right" size={16} color={COLORS.ink3} />}
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.row, { borderBottomWidth: 0 }]} onPress={handleRestore} disabled={restoring}>
+            <Feather name="upload" size={18} color={COLORS.ink2} style={{ marginRight: 12 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>Restore from backup</Text>
+              <Text style={styles.rowSub}>Replace current data with a backup file</Text>
+            </View>
+            {restoring
+              ? <ActivityIndicator size="small" color={COLORS.terra} />
+              : <Feather name="chevron-right" size={16} color={COLORS.ink3} />}
+          </TouchableOpacity>
+        </View>
+
+        {/* WARDROBE / STATS */}
         <SectionHeader label="Wardrobe" />
         <View style={styles.card}>
           <TouchableOpacity style={[styles.row, { borderBottomWidth: 0 }]} onPress={() => navigate('Stats')}>
@@ -288,37 +393,37 @@ function SectionHeader({ label, sub }) {
 }
 
 const styles = StyleSheet.create({
-  container:      { flex: 1, backgroundColor: COLORS.cream },
-  topBar:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.xl, paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
-  iconBtn:        { width: 38, height: 38, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.border, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center' },
-  title:          { fontSize: 17, fontWeight: '600', color: COLORS.ink },
-  saveBtn:        { backgroundColor: COLORS.ink, borderRadius: RADIUS.full, paddingHorizontal: 18, paddingVertical: 8 },
-  saveBtnDisabled:{ backgroundColor: COLORS.cream, borderWidth: 0.5, borderColor: COLORS.border },
-  saveBtnText:    { fontSize: 14, fontWeight: '600', color: COLORS.cream },
-  scroll:         { paddingBottom: 40 },
-  sectionHeader:  { paddingHorizontal: SPACING.xl, paddingTop: SPACING.xl, paddingBottom: SPACING.sm },
-  sectionLabel:   { fontSize: 11, fontWeight: '600', color: COLORS.ink3, letterSpacing: 1, textTransform: 'uppercase' },
-  sectionSub:     { fontSize: 12, color: COLORS.ink3, marginTop: 2 },
-  card:           { marginHorizontal: SPACING.xl, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, borderWidth: 0.5, borderColor: COLORS.border, overflow: 'hidden' },
-  row:            { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.md, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: COLORS.border },
-  rowLabel:       { fontSize: 14, fontWeight: '500', color: COLORS.ink },
-  rowSub:         { fontSize: 12, color: COLORS.ink3, marginTop: 1 },
-  currencyInput:  { width: 44, height: 36, borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.sm, textAlign: 'center', fontSize: 16, fontWeight: '600', color: COLORS.ink, backgroundColor: COLORS.cream },
-  goalInputWrap:  { flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.sm, backgroundColor: COLORS.cream, paddingHorizontal: 8, height: 36 },
-  goalCurrency:   { fontSize: 14, color: COLORS.ink2, marginRight: 2 },
-  goalInput:      { width: 60, fontSize: 14, color: COLORS.ink },
-  keyInputRow:    { flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.md, backgroundColor: COLORS.cream, paddingHorizontal: 12, height: 44 },
-  keyInput:       { flex: 1, fontSize: 13, color: COLORS.ink },
-  eyeBtn:         { padding: 4 },
-  saveKeyBtn:     { backgroundColor: COLORS.ink, borderRadius: RADIUS.md, paddingVertical: 12, alignItems: 'center' },
-  saveKeyBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.cream },
-  removeKeyBtn:   { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: RADIUS.sm, borderWidth: 0.5, borderColor: COLORS.terra, backgroundColor: COLORS.terraLt },
-  removeKeyText:  { fontSize: 12, fontWeight: '500', color: COLORS.terra },
-  emptyNote:      { fontSize: 13, color: COLORS.ink3, padding: SPACING.md, textAlign: 'center' },
-  fieldInput:     { flex: 1, fontSize: 14, color: COLORS.ink, paddingVertical: 4 },
-  removeBtn:      { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  addFieldBtn:    { flexDirection: 'row', alignItems: 'center', gap: 8, padding: SPACING.md, borderTopWidth: 0.5, borderTopColor: COLORS.border },
-  addFieldBtnText:{ fontSize: 14, fontWeight: '500', color: COLORS.sage },
-  seasonDot:      { width: 36, height: 22, borderRadius: RADIUS.sm, alignItems: 'center', justifyContent: 'center' },
-  seasonDotText:  { fontSize: 10, fontWeight: '600' },
+  container:       { flex: 1, backgroundColor: COLORS.cream },
+  topBar:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.xl, paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
+  iconBtn:         { width: 38, height: 38, borderRadius: RADIUS.full, borderWidth: 0.5, borderColor: COLORS.border, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center' },
+  title:           { fontSize: 17, fontWeight: '600', color: COLORS.ink },
+  saveBtn:         { backgroundColor: COLORS.ink, borderRadius: RADIUS.full, paddingHorizontal: 18, paddingVertical: 8 },
+  saveBtnDisabled: { backgroundColor: COLORS.cream, borderWidth: 0.5, borderColor: COLORS.border },
+  saveBtnText:     { fontSize: 14, fontWeight: '600', color: COLORS.cream },
+  scroll:          { paddingBottom: 40 },
+  sectionHeader:   { paddingHorizontal: SPACING.xl, paddingTop: SPACING.xl, paddingBottom: SPACING.sm },
+  sectionLabel:    { fontSize: 11, fontWeight: '600', color: COLORS.ink3, letterSpacing: 1, textTransform: 'uppercase' },
+  sectionSub:      { fontSize: 12, color: COLORS.ink3, marginTop: 2 },
+  card:            { marginHorizontal: SPACING.xl, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, borderWidth: 0.5, borderColor: COLORS.border, overflow: 'hidden' },
+  row:             { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.md, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: COLORS.border },
+  rowLabel:        { fontSize: 14, fontWeight: '500', color: COLORS.ink },
+  rowSub:          { fontSize: 12, color: COLORS.ink3, marginTop: 1 },
+  currencyInput:   { width: 44, height: 36, borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.sm, textAlign: 'center', fontSize: 16, fontWeight: '600', color: COLORS.ink, backgroundColor: COLORS.cream },
+  goalInputWrap:   { flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.sm, backgroundColor: COLORS.cream, paddingHorizontal: 8, height: 36 },
+  goalCurrency:    { fontSize: 14, color: COLORS.ink2, marginRight: 2 },
+  goalInput:       { width: 60, fontSize: 14, color: COLORS.ink },
+  keyInputRow:     { flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.borderMed, borderRadius: RADIUS.md, backgroundColor: COLORS.cream, paddingHorizontal: 12, height: 44 },
+  keyInput:        { flex: 1, fontSize: 13, color: COLORS.ink },
+  eyeBtn:          { padding: 4 },
+  saveKeyBtn:      { backgroundColor: COLORS.ink, borderRadius: RADIUS.md, paddingVertical: 12, alignItems: 'center' },
+  saveKeyBtnText:  { fontSize: 14, fontWeight: '600', color: COLORS.cream },
+  removeKeyBtn:    { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: RADIUS.sm, borderWidth: 0.5, borderColor: COLORS.terra, backgroundColor: COLORS.terraLt },
+  removeKeyText:   { fontSize: 12, fontWeight: '500', color: COLORS.terra },
+  emptyNote:       { fontSize: 13, color: COLORS.ink3, padding: SPACING.md, textAlign: 'center' },
+  fieldInput:      { flex: 1, fontSize: 14, color: COLORS.ink, paddingVertical: 4 },
+  removeBtn:       { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  addFieldBtn:     { flexDirection: 'row', alignItems: 'center', gap: 8, padding: SPACING.md, borderTopWidth: 0.5, borderTopColor: COLORS.border },
+  addFieldBtnText: { fontSize: 14, fontWeight: '500', color: COLORS.sage },
+  seasonDot:       { width: 36, height: 22, borderRadius: RADIUS.sm, alignItems: 'center', justifyContent: 'center' },
+  seasonDotText:   { fontSize: 10, fontWeight: '600' },
 });
